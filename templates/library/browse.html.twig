@@ -1,0 +1,74 @@
+{% extends 'layout.html.twig' %}
+
+{% set typeLabel = {
+    movies: 'Movies', shows: 'Shows', music: 'Music',
+    audiobooks: 'Audiobooks', books: 'Books'
+} %}
+
+{% set typeIcon = {
+    movies: '🎬', shows: '📺', music: '🎵', audiobooks: '🎧', books: '📚'
+} %}
+
+{% block title %}{{ typeLabel[type] }} — MediaServer{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <span>{{ typeLabel[type] }}</span>
+</div>
+
+<h1>{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
+
+{% if grouped %}
+    {# Shows grouped by show_name / Music grouped by artist #}
+    <div class="item-list">
+        {% for item in items %}
+            {% set name = item.show_name ?? item.author ?? '(Unknown)' %}
+            {% set count = item.episode_count ?? item.track_count ?? 0 %}
+            <a href="/library/{{ type }}/{{ name|url_encode }}" class="item-row">
+                <span class="item-icon">{{ typeIcon[type] }}</span>
+                <span class="item-name">{{ name }}</span>
+                <span class="item-meta">{{ count }} {{ type == 'shows' ? 'episode' : 'track' }}{{ count != 1 ? 's' : '' }}</span>
+            </a>
+        {% else %}
+            <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
+        {% endfor %}
+    </div>
+{% else %}
+    {# Flat list: movies, books, audiobooks #}
+    <div class="item-list">
+        {% for item in items %}
+            {% set rel = item.path|replace({'/'~item.filename: ''}) %}
+            <a href="/library/{{ type }}/{{ item.filename|url_encode }}" class="item-row">
+                <span class="item-icon">{{ typeIcon[type] }}</span>
+                <span class="item-name">{{ item.title ?? item.filename }}</span>
+                <span class="item-meta">
+                    {% if item.year %}{{ item.year }} · {% endif %}
+                    {{ item.extension|upper }}
+                </span>
+            </a>
+        {% else %}
+            <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+{% if pages > 1 %}
+<div class="pagination">
+    {% if page > 1 %}
+        <a href="?page={{ page - 1 }}">&larr; Prev</a>
+    {% endif %}
+    {% for p in 1..pages %}
+        {% if p == page %}
+            <span class="current">{{ p }}</span>
+        {% else %}
+            <a href="?page={{ p }}">{{ p }}</a>
+        {% endif %}
+    {% endfor %}
+    {% if page < pages %}
+        <a href="?page={{ page + 1 }}">Next &rarr;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

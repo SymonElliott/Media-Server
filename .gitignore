@@ -1,0 +1,6 @@
+vendor/
+.env
+storage/db/*.sqlite
+storage/cache/twig/
+*.log
+.DS_Store

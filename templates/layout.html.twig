@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}MediaServer{% endblock %}</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg:        #0d0d0d;
+            --surface:   #1a1a1a;
+            --surface2:  #242424;
+            --border:    #333;
+            --text:      #e0e0e0;
+            --muted:     #888;
+            --accent:    #5b9cf6;
+            --accent-h:  #7ab3f8;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font-family: system-ui, -apple-system, sans-serif;
+            font-size: 15px;
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        /* ── Nav ── */
+        nav {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            gap: 0;
+            height: 56px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .brand {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+            text-decoration: none;
+            margin-right: 2rem;
+            letter-spacing: -0.3px;
+        }
+        nav a {
+            color: var(--muted);
+            text-decoration: none;
+            padding: 0 1rem;
+            height: 56px;
+            display: flex;
+            align-items: center;
+            font-size: 0.9rem;
+            border-bottom: 2px solid transparent;
+            transition: color 0.15s, border-color 0.15s;
+        }
+        nav a:hover  { color: var(--text); }
+        nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .nav-actions { margin-left: auto; }
+        .btn-scan {
+            background: var(--surface2);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.35rem 0.85rem;
+            border-radius: 6px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-scan:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+        /* ── Main layout ── */
+        main { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+
+        /* ── Typography ── */
+        h1 { font-size: 1.6rem; font-weight: 700; margin-bottom: 1.5rem; }
+        h2 { font-size: 1.1rem; font-weight: 600; color: var(--muted); margin-bottom: 1rem; }
+
+        /* ── Cards ── */
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 1rem;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            text-decoration: none;
+            color: var(--text);
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+            transition: border-color 0.15s, background 0.15s;
+            overflow: hidden;
+        }
+        .card:hover { border-color: var(--accent); background: var(--surface2); }
+        .card .card-title { font-weight: 600; font-size: 0.95rem; word-break: break-word; }
+        .card .card-meta  { font-size: 0.8rem; color: var(--muted); }
+        .card .card-icon  { font-size: 2rem; margin-bottom: 0.25rem; }
+
+        /* ── List view ── */
+        .item-list { display: flex; flex-direction: column; gap: 0.5rem; }
+        .item-row {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            text-decoration: none;
+            color: var(--text);
+            transition: border-color 0.15s;
+        }
+        .item-row:hover { border-color: var(--accent); }
+        .item-row .item-icon { font-size: 1.3rem; flex-shrink: 0; }
+        .item-row .item-name { flex: 1; font-weight: 500; }
+        .item-row .item-meta { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+
+        /* ── Breadcrumb ── */
+        .breadcrumb { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1.5rem; font-size: 0.9rem; color: var(--muted); }
+        .breadcrumb a { color: var(--accent); text-decoration: none; }
+        .breadcrumb a:hover { text-decoration: underline; }
+        .breadcrumb .sep { color: var(--border); }
+
+        /* ── Player ── */
+        .player-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; margin-bottom: 1.5rem; }
+        .player-wrap video,
+        .player-wrap audio { width: 100%; display: block; }
+        .player-wrap audio  { padding: 1rem; }
+
+        /* ── Meta table ── */
+        .meta-table { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+        .meta-table table { width: 100%; border-collapse: collapse; }
+        .meta-table td { padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); }
+        .meta-table td:first-child { color: var(--muted); font-size: 0.85rem; width: 140px; }
+        .meta-table tr:last-child td { border-bottom: none; }
+
+        /* ── Pagination ── */
+        .pagination { display: flex; gap: 0.5rem; margin-top: 2rem; justify-content: center; }
+        .pagination a, .pagination span {
+            padding: 0.4rem 0.8rem;
+            border-radius: 5px;
+            border: 1px solid var(--border);
+            text-decoration: none;
+            color: var(--text);
+            font-size: 0.85rem;
+        }
+        .pagination a:hover  { border-color: var(--accent); color: var(--accent); }
+        .pagination .current { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+        /* ── Stat cards (home) ── */
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 1.5rem;
+            text-decoration: none;
+            color: var(--text);
+            transition: border-color 0.15s;
+        }
+        .stat-card:hover { border-color: var(--accent); }
+        .stat-card .stat-icon  { font-size: 2.2rem; margin-bottom: 0.75rem; }
+        .stat-card .stat-label { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-card .stat-count { font-size: 2rem; font-weight: 700; }
+        .stat-card .stat-sub   { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; }
+
+        /* ── Toast ── */
+        #toast {
+            position: fixed; bottom: 1.5rem; right: 1.5rem;
+            background: var(--surface2); border: 1px solid var(--border);
+            padding: 0.75rem 1.25rem; border-radius: 8px;
+            font-size: 0.9rem; opacity: 0; transition: opacity 0.3s;
+            pointer-events: none; z-index: 999;
+        }
+        #toast.show { opacity: 1; }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/" class="brand">MediaServer</a>
+        <a href="/" data-nav>Home</a>
+        <a href="/library/movies" data-nav>Movies</a>
+        <a href="/library/shows" data-nav>Shows</a>
+        <a href="/library/music" data-nav>Music</a>
+        <a href="/library/audiobooks" data-nav>Audiobooks</a>
+        <a href="/library/books" data-nav>Books</a>
+        <div class="nav-actions">
+            <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
+        </div>
+    </nav>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <div id="toast"></div>
+
+    <script>
+        function triggerScan() {
+            const btn = document.querySelector('.btn-scan');
+            btn.textContent = 'Scanning…';
+            btn.disabled = true;
+
+            fetch('/scan', { method: 'POST' })
+                .then(r => r.json())
+                .then(d => {
+                    showToast(`Scan complete — ${d.added} added, ${d.updated} updated, ${d.skipped} skipped`);
+                    btn.textContent = 'Scan Library';
+                    btn.disabled = false;
+                })
+                .catch(() => {
+                    showToast('Scan failed');
+                    btn.textContent = 'Scan Library';
+                    btn.disabled = false;
+                });
+        }
+
+        // Mark active nav link
+        (function () {
+            const path = window.location.pathname;
+            document.querySelectorAll('a[data-nav]').forEach(a => {
+                const href = a.getAttribute('href');
+                const active = href === '/' ? path === '/' : path.startsWith(href);
+                if (active) a.classList.add('active');
+            });
+        })();
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            setTimeout(() => t.classList.remove('show'), 4000);
+        }
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,89 @@
+{% extends 'layout.html.twig' %}
+
+{% set typeLabel = {
+    movies: 'Movies', shows: 'Shows', music: 'Music',
+    audiobooks: 'Audiobooks', books: 'Books'
+} %}
+
+{% set videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'] %}
+{% set audioExts = ['mp3', 'flac', 'aac', 'm4a', 'm4b', 'ogg', 'wav'] %}
+
+{% block title %}{{ item.title ?? item.filename }} — MediaServer{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
+    <span class="sep">/</span>
+    <span>{{ item.title ?? item.filename }}</span>
+</div>
+
+<h1>{{ item.title ?? item.filename }}</h1>
+
+{# Player #}
+{% if item.extension in videoExts %}
+    <div class="player-wrap" style="margin-bottom: 1.5rem;">
+        <video controls preload="metadata">
+            <source src="{{ item.stream_url }}" type="video/{{ item.extension == 'mkv' ? 'x-matroska' : item.extension }}">
+            Your browser does not support video playback.
+        </video>
+    </div>
+{% elseif item.extension in audioExts %}
+    <div class="player-wrap" style="margin-bottom: 1.5rem;">
+        <audio controls preload="metadata">
+            <source src="{{ item.stream_url }}">
+            Your browser does not support audio playback.
+        </audio>
+    </div>
+{% elseif item.extension == 'pdf' %}
+    <div style="margin-bottom: 1.5rem;">
+        <a href="{{ item.stream_url }}" target="_blank"
+           style="display: inline-block; background: var(--accent); color: #fff; padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none; font-weight: 500;">
+            Open PDF
+        </a>
+    </div>
+{% else %}
+    <div style="margin-bottom: 1.5rem;">
+        <a href="{{ item.stream_url }}"
+           style="display: inline-block; background: var(--accent); color: #fff; padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none; font-weight: 500;">
+            Download {{ item.extension|upper }}
+        </a>
+    </div>
+{% endif %}
+
+{# Metadata #}
+<div class="meta-table">
+    <table>
+        {% if item.show_name %}<tr><td>Show</td><td>{{ item.show_name }}</td></tr>{% endif %}
+        {% if item.season %}<tr><td>Season</td><td>{{ item.season }}</td></tr>{% endif %}
+        {% if item.author %}<tr><td>Author / Artist</td><td>{{ item.author }}</td></tr>{% endif %}
+        {% if item.series %}<tr><td>Series / Album</td><td>{{ item.series }}</td></tr>{% endif %}
+        {% if item.year %}<tr><td>Year</td><td>{{ item.year }}</td></tr>{% endif %}
+        <tr><td>Format</td><td>{{ item.extension|upper }}</td></tr>
+        <tr><td>Size</td><td>{{ (item.size / 1048576)|round(1) }} MB</td></tr>
+        <tr><td>File</td><td style="word-break: break-all; font-size: 0.8rem; color: var(--muted);">{{ item.path }}</td></tr>
+    </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+{% if item.extension in videoExts or item.extension in audioExts %}
+<script>
+    // Resume playback position
+    const key = 'pos_{{ item.id }}';
+    const el  = document.querySelector('video, audio');
+
+    if (el) {
+        const saved = parseFloat(localStorage.getItem(key) || '0');
+        if (saved > 5) el.currentTime = saved;
+
+        el.addEventListener('timeupdate', () => {
+            if (el.currentTime > 5) localStorage.setItem(key, el.currentTime);
+        });
+
+        el.addEventListener('ended', () => localStorage.removeItem(key));
+    }
+</script>
+{% endif %}
+{% endblock %}

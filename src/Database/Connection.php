@@ -1,0 +1,79 @@
+<?php
+
+declare(strict_types=1);
+
+namespace App\Database;
+
+use PDO;
+
+class Connection
+{
+    private PDO $pdo;
+
+    public function __construct(string $dbPath)
+    {
+        $dir = dirname($dbPath);
+        if (!is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        $this->pdo = new PDO('sqlite:' . $dbPath, options: [
+            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
+            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+        ]);
+
+        $this->migrate();
+    }
+
+    public function pdo(): PDO
+    {
+        return $this->pdo;
+    }
+
+    public function query(string $sql, array $params = []): array
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return $stmt->fetchAll();
+    }
+
+    public function execute(string $sql, array $params = []): int
+    {
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        return (int) $this->pdo->lastInsertId();
+    }
+
+    public function first(string $sql, array $params = []): ?array
+    {
+        $results = $this->query($sql, $params);
+        return $results[0] ?? null;
+    }
+
+    private function migrate(): void
+    {
+        $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS media (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                type         TEXT NOT NULL,
+                path         TEXT NOT NULL UNIQUE,
+                filename     TEXT NOT NULL,
+                extension    TEXT NOT NULL,
+                size         INTEGER DEFAULT 0,
+                title        TEXT,
+                author       TEXT,
+                series       TEXT,
+                show_name    TEXT,
+                season       INTEGER,
+                episode      INTEGER,
+                year         INTEGER,
+                metadata     TEXT DEFAULT '{}',
+                indexed_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
+            CREATE INDEX IF NOT EXISTS idx_media_show ON media(show_name);
+            CREATE INDEX IF NOT EXISTS idx_media_author ON media(author);
+        SQL);
+    }
+}

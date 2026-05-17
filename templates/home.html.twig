@@ -1,0 +1,33 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}MediaServer — Home{% endblock %}
+
+{% block content %}
+<h1>Library</h1>
+
+{% set typeConfig = {
+    movies:     { icon: '🎬', label: 'Movies',     unit: 'film' },
+    shows:      { icon: '📺', label: 'Shows',      unit: 'episode' },
+    music:      { icon: '🎵', label: 'Music',      unit: 'track' },
+    audiobooks: { icon: '🎧', label: 'Audiobooks', unit: 'file' },
+    books:      { icon: '📚', label: 'Books',      unit: 'file' },
+} %}
+
+<div class="stat-grid">
+    {% for type, cfg in typeConfig %}
+        {% set info = counts[type] ?? null %}
+        <a href="/library/{{ type }}" class="stat-card">
+            <div class="stat-icon">{{ cfg.icon }}</div>
+            <div class="stat-label">{{ cfg.label }}</div>
+            <div class="stat-count">{{ info ? info.count : 0 }}</div>
+            <div class="stat-sub">{{ cfg.unit }}{% if info and info.count != 1 %}s{% endif %}</div>
+        </a>
+    {% endfor %}
+</div>
+
+{% if counts is empty %}
+<p style="color: var(--muted); margin-top: 1rem;">
+    No media indexed yet. Click <strong>Scan Library</strong> in the nav to index your files.
+</p>
+{% endif %}
+{% endblock %}

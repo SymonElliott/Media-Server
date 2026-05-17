@@ -1,0 +1,54 @@
+{% extends 'layout.html.twig' %}
+
+{% set typeLabel = {
+    movies: 'Movies', shows: 'Shows', music: 'Music',
+    audiobooks: 'Audiobooks', books: 'Books'
+} %}
+{% set typeIcon = {
+    movies: '🎬', shows: '📺', music: '🎵', audiobooks: '🎧', books: '📚'
+} %}
+
+{% block title %}{{ path }} — MediaServer{% endblock %}
+
+{% block content %}
+{% set parts = path|split('/') %}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
+    {% set accum = '' %}
+    {% for part in parts %}
+        {% set accum = accum ~ (loop.first ? '' : '/') ~ part %}
+        <span class="sep">/</span>
+        {% if not loop.last %}
+            <a href="/library/{{ type }}/{{ accum }}">{{ part }}</a>
+        {% else %}
+            <span>{{ part }}</span>
+        {% endif %}
+    {% endfor %}
+</div>
+
+<h1>{{ parts|last }}</h1>
+
+<div class="item-list">
+    {% for entry in entries %}
+        {% if entry.is_dir %}
+            <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
+                <span class="item-icon">📁</span>
+                <span class="item-name">{{ entry.name }}</span>
+                <span class="item-meta">folder</span>
+            </a>
+        {% else %}
+            <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
+                <span class="item-icon">{{ typeIcon[type] }}</span>
+                <span class="item-name">{{ entry.name }}</span>
+                <span class="item-meta">
+                    {% if entry.size %}{{ (entry.size / 1048576)|round(1) }} MB{% endif %}
+                </span>
+            </a>
+        {% endif %}
+    {% else %}
+        <p style="color: var(--muted);">Empty directory.</p>
+    {% endfor %}
+</div>
+{% endblock %}

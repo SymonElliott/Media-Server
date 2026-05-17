@@ -1,0 +1,24 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}Library — MediaServer{% endblock %}
+
+{% block content %}
+<h1>Library</h1>
+
+{% set typeConfig = {
+    movies:     { icon: '🎬', label: 'Movies' },
+    shows:      { icon: '📺', label: 'Shows' },
+    music:      { icon: '🎵', label: 'Music' },
+    audiobooks: { icon: '🎧', label: 'Audiobooks' },
+    books:      { icon: '📚', label: 'Books' },
+} %}
+
+<div class="grid">
+    {% for type, cfg in typeConfig %}
+        <a href="/library/{{ type }}" class="card">
+            <div class="card-icon">{{ cfg.icon }}</div>
+            <div class="card-title">{{ cfg.label }}</div>
+        </a>
+    {% endfor %}
+</div>
+{% endblock %}
