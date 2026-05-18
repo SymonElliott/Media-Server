@@ -8,6 +8,8 @@
 {% set videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'] %}
 {% set audioExts = ['mp3', 'flac', 'aac', 'm4a', 'm4b', 'ogg', 'wav'] %}
 
+{% set meta = item.metadata ? item.metadata|json_decode : {} %}
+
 {% block title %}{{ item.title ?? item.filename }} — MediaServer{% endblock %}
 
 {% block content %}
@@ -15,75 +17,156 @@
     <a href="/">Home</a>
     <span class="sep">/</span>
     <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
+    {% if item.show_name %}
+        <span class="sep">/</span>
+        <a href="/library/{{ type }}/{{ item.show_name|url_encode }}">{{ item.show_name }}</a>
+    {% endif %}
     <span class="sep">/</span>
     <span>{{ item.title ?? item.filename }}</span>
 </div>
 
-<h1>{{ item.title ?? item.filename }}</h1>
+{# For show episodes: background = show poster, foreground = episode still.
+   For everything else: background = poster, foreground = poster. #}
+{% set heroBg     = item.poster ?? item.still %}
+{% set heroPoster = type == 'shows' ? item.still : item.poster %}
 
-{# Player #}
-{% if item.extension in videoExts %}
-    <div class="player-wrap" style="margin-bottom: 1.5rem;">
-        <video controls preload="metadata">
-            <source src="{{ item.stream_url }}" type="video/{{ item.extension == 'mkv' ? 'x-matroska' : item.extension }}">
-            Your browser does not support video playback.
-        </video>
-    </div>
-{% elseif item.extension in audioExts %}
-    <div class="player-wrap" style="margin-bottom: 1.5rem;">
-        <audio controls preload="metadata">
-            <source src="{{ item.stream_url }}">
-            Your browser does not support audio playback.
-        </audio>
-    </div>
-{% elseif item.extension == 'pdf' %}
-    <div style="margin-bottom: 1.5rem;">
-        <a href="{{ item.stream_url }}" target="_blank"
-           style="display: inline-block; background: var(--accent); color: #fff; padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none; font-weight: 500;">
-            Open PDF
-        </a>
-    </div>
-{% else %}
-    <div style="margin-bottom: 1.5rem;">
-        <a href="{{ item.stream_url }}"
-           style="display: inline-block; background: var(--accent); color: #fff; padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none; font-weight: 500;">
-            Download {{ item.extension|upper }}
-        </a>
-    </div>
-{% endif %}
+{# ── Hero Banner ── #}
+<div class="item-hero"{% if heroBg %} style="--hero-poster: url('{{ heroBg }}')"{% endif %}>
+    <div class="item-hero-bg"></div>
+    <div class="item-hero-overlay"></div>
+    <div class="item-hero-content">
 
-{# Metadata #}
-<div class="meta-table">
-    <table>
-        {% if item.show_name %}<tr><td>Show</td><td>{{ item.show_name }}</td></tr>{% endif %}
-        {% if item.season %}<tr><td>Season</td><td>{{ item.season }}</td></tr>{% endif %}
-        {% if item.author %}<tr><td>Author / Artist</td><td>{{ item.author }}</td></tr>{% endif %}
-        {% if item.series %}<tr><td>Series / Album</td><td>{{ item.series }}</td></tr>{% endif %}
-        {% if item.year %}<tr><td>Year</td><td>{{ item.year }}</td></tr>{% endif %}
-        <tr><td>Format</td><td>{{ item.extension|upper }}</td></tr>
-        <tr><td>Size</td><td>{{ (item.size / 1048576)|round(1) }} MB</td></tr>
-        <tr><td>File</td><td style="word-break: break-all; font-size: 0.8rem; color: var(--muted);">{{ item.path }}</td></tr>
-    </table>
+        {# Poster column: episode still for shows, cover art for everything else #}
+        {% if heroPoster %}
+        <div class="item-hero-poster">
+            <img src="{{ heroPoster }}" alt="{{ item.title ?? item.filename }}">
+        </div>
+        {% endif %}
+
+        {# Info column #}
+        <div class="item-hero-info">
+            {# Eyebrow: show name or author #}
+            {% if item.show_name %}
+                <div class="item-hero-eyebrow">{{ item.show_name }}</div>
+            {% elseif item.author %}
+                <div class="item-hero-eyebrow">{{ item.author }}</div>
+            {% endif %}
+
+            <h1>{{ item.title ?? item.filename }}</h1>
+
+            <div class="item-hero-sub">
+                {% set parts = [] %}
+                {% if item.season %}
+                    {% set ep = 'S' ~ '%02d'|format(item.season) %}
+                    {% if item.episode %}{% set ep = ep ~ 'E' ~ '%02d'|format(item.episode) %}{% endif %}
+                    {% set parts = parts|merge([ep]) %}
+                {% endif %}
+                {% if item.year %}{% set parts = parts|merge([item.year ~ '']) %}{% endif %}
+                {% if item.series and item.series != item.title %}
+                    {% set parts = parts|merge([item.series]) %}
+                {% endif %}
+                {% if meta.genres is defined and meta.genres|length > 0 %}
+                    {% set parts = parts|merge([meta.genres|slice(0, 2)|join(' / ')]) %}
+                {% endif %}
+                {{ parts|join(' · ') }}
+            </div>
+
+            <div class="item-hero-actions">
+                {% if item.extension in videoExts %}
+                    <a href="{{ item.stream_url }}" target="_blank" rel="noopener" class="btn-play-hero">
+                        &#9654; Play
+                    </a>
+                {% elseif item.extension in audioExts %}
+                    <audio class="hero-audio" controls preload="metadata" src="{{ item.stream_url }}"></audio>
+                {% elseif item.extension == 'pdf' %}
+                    <a href="{{ item.stream_url }}" target="_blank" rel="noopener" class="btn-play-hero">
+                        Open PDF
+                    </a>
+                {% else %}
+                    <a href="{{ item.stream_url }}" class="btn-play-hero">
+                        Download {{ item.extension|upper }}
+                    </a>
+                {% endif %}
+
+                <form method="post" action="/metadata/refresh/{{ item.id }}">
+                    <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
+                </form>
+
+                <button class="btn-refresh" data-id="{{ item.id }}" data-type="{{ type }}" data-label="{{ (item.title ?? item.filename)|e }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+        </div>
+
+    </div>
 </div>
-{% endblock %}
 
-{% block scripts %}
-{% if item.extension in videoExts or item.extension in audioExts %}
-<script>
-    // Resume playback position
-    const key = 'pos_{{ item.id }}';
-    const el  = document.querySelector('video, audio');
+{# ── Body ── #}
+<div class="item-detail-body">
 
-    if (el) {
-        const saved = parseFloat(localStorage.getItem(key) || '0');
-        if (saved > 5) el.currentTime = saved;
+    {% if item.description %}
+        <p class="item-description">{{ item.description }}</p>
+    {% elseif not item.metadata_fetched_at %}
+        <p class="item-description" style="font-style:italic;">
+            No metadata yet — click ↻ Refresh Metadata above.
+        </p>
+    {% endif %}
 
-        el.addEventListener('timeupdate', () => {
-            if (el.currentTime > 5) localStorage.setItem(key, el.currentTime);
-        });
+    {# Cast / Director / Genres #}
+    {% if meta.cast is defined and meta.cast|length > 0 %}
+        <div class="item-section">
+            <h2>Cast</h2>
+            <div class="cast-list">
+                {% for name in meta.cast %}<span class="cast-chip">{{ name }}</span>{% endfor %}
+            </div>
+        </div>
+    {% endif %}
 
-        el.addEventListener('ended', () => localStorage.removeItem(key));
-    }
-</script>
-{% endif %}
+    {% if meta.director is defined and meta.director|length > 0 %}
+        <div class="item-section">
+            <h2>Director</h2>
+            <div class="cast-list">
+                {% for name in meta.director %}<span class="cast-chip">{{ name }}</span>{% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    {% if meta.genres is defined and meta.genres|length > 0 %}
+        <div class="item-section">
+            <h2>Genres</h2>
+            <div class="cast-list">
+                {% for g in meta.genres %}<span class="cast-chip">{{ g }}</span>{% endfor %}
+            </div>
+        </div>
+    {% endif %}
+
+    {# File details #}
+    <div class="item-section">
+        <h2>Details</h2>
+        <div class="meta-table">
+            <table>
+                <tr><td>Format</td><td>{{ item.extension|upper }}</td></tr>
+                {% if item.quality.resolution is defined %}
+                    <tr><td>Resolution</td><td>{{ item.quality.resolution }}</td></tr>
+                {% endif %}
+                {% if item.quality.source is defined %}
+                    <tr><td>Source</td><td>{{ item.quality.source }}</td></tr>
+                {% endif %}
+                {% if item.quality.hdr is defined %}
+                    <tr><td>HDR</td><td>{{ item.quality.hdr }}</td></tr>
+                {% endif %}
+                {% if item.quality.codec is defined %}
+                    <tr><td>Video</td><td>{{ item.quality.codec }}</td></tr>
+                {% endif %}
+                {% if item.quality.audio is defined %}
+                    <tr><td>Audio</td><td>{{ item.quality.audio }}</td></tr>
+                {% endif %}
+                <tr><td>Size</td><td>{{ (item.size / 1048576)|round(1) }} MB</td></tr>
+                {% if item.external_source %}
+                    <tr><td>Metadata</td><td style="text-transform:capitalize;">{{ item.external_source }}</td></tr>
+                {% endif %}
+                <tr><td>File</td><td style="word-break:break-all; font-size:0.8rem; color:var(--muted);">{{ item.path }}</td></tr>
+            </table>
+        </div>
+    </div>
+
+</div>
 {% endblock %}

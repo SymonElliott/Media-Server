@@ -32,18 +32,39 @@
 
 <div class="item-list">
     {% for entry in entries %}
-        {% if entry.is_dir %}
-            <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
-                <span class="item-icon">📁</span>
-                <span class="item-name">{{ entry.name }}</span>
-                <span class="item-meta">folder</span>
-            </a>
+        {% if not entry.is_dir and entry.id is defined and entry.id %}
+            <div class="item-row-wrap">
+                <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row" data-media-id="{{ entry.id }}">
+                    {% if entry.poster %}
+                        <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">{{ typeIcon[type] }}</span>
+                    {% endif %}
+                    <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                    <span class="item-meta">
+                        {% if entry.season is defined and entry.season %}
+                            S{{ '%02d'|format(entry.season) }}{% if entry.episode %}E{{ '%02d'|format(entry.episode) }}{% endif %}
+                        {% endif %}
+                    </span>
+                </a>
+                <button class="item-menu-btn" data-id="{{ entry.id }}" data-type="{{ type }}" data-label="{{ (entry.title ?? entry.name)|e }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
         {% else %}
             <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
-                <span class="item-icon">{{ typeIcon[type] }}</span>
-                <span class="item-name">{{ entry.name }}</span>
+                {% if entry.poster %}
+                    <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                {% elseif entry.is_dir %}
+                    <span class="item-icon">📁</span>
+                {% else %}
+                    <span class="item-icon">{{ typeIcon[type] }}</span>
+                {% endif %}
+                <span class="item-name">{{ entry.title ?? entry.name }}</span>
                 <span class="item-meta">
-                    {% if entry.size %}{{ (entry.size / 1048576)|round(1) }} MB{% endif %}
+                    {% if entry.is_dir %}
+                        folder
+                    {% elseif entry.season is defined and entry.season %}
+                        S{{ '%02d'|format(entry.season) }}{% if entry.episode %}E{{ '%02d'|format(entry.episode) }}{% endif %}
+                    {% endif %}
                 </span>
             </a>
         {% endif %}

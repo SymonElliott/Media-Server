@@ -1,0 +1,127 @@
+{% extends 'layout.html.twig' %}
+
+{% set typeLabel = {
+    movies: 'Movies', shows: 'Shows', music: 'Music',
+    audiobooks: 'Audiobooks', books: 'Books'
+} %}
+{% set typeIcon = {
+    movies: '🎬', shows: '📺', music: '🎵', audiobooks: '🎧', books: '📚'
+} %}
+
+{% block title %}{{ name }} — MediaServer{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
+    <span class="sep">/</span>
+    <span>{{ name }}</span>
+</div>
+
+{# ── Hero Banner ── #}
+<div class="item-hero"{% if entity.poster %} style="--hero-poster: url('{{ entity.poster }}')"{% endif %}>
+    <div class="item-hero-bg"></div>
+    <div class="item-hero-overlay"></div>
+    <div class="item-hero-content">
+
+        {# Poster column #}
+        {% if entity.poster %}
+        <div class="item-hero-poster">
+            <img src="{{ entity.poster }}" alt="{{ name }}">
+        </div>
+        {% endif %}
+
+        {# Info column #}
+        <div class="item-hero-info">
+            <div class="item-hero-eyebrow">{{ typeLabel[type] }}</div>
+            <h1>{{ name }}</h1>
+
+            <div class="item-hero-sub">
+                {% set parts = [] %}
+                {% if entity.year %}{% set parts = parts|merge([entity.year ~ '']) %}{% endif %}
+                {% if meta.networks is defined and meta.networks|length > 0 %}
+                    {% set parts = parts|merge([meta.networks|join(', ')]) %}
+                {% endif %}
+                {% if meta.status is defined and meta.status %}
+                    {% set parts = parts|merge([meta.status]) %}
+                {% endif %}
+                {% if meta.artist is defined %}
+                    {% set parts = parts|merge([meta.artist]) %}
+                {% endif %}
+                {% if meta.genres is defined and meta.genres|length > 0 %}
+                    {% set parts = parts|merge([meta.genres|slice(0, 2)|join(' / ')]) %}
+                {% endif %}
+                {{ parts|join(' · ') }}
+            </div>
+
+            <div class="item-hero-actions">
+                <form method="post" action="/metadata/refresh/{{ entity.id }}">
+                    <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{# ── Body ── #}
+<div class="item-detail-body">
+
+    {% if entity.description %}
+        <p class="item-description">{{ entity.description }}</p>
+    {% elseif not entity.metadata_fetched_at %}
+        <p class="item-description" style="font-style:italic;">
+            No metadata yet — click ↻ Refresh Metadata above or run a scan.
+        </p>
+    {% endif %}
+
+    {% if meta.genres is defined and meta.genres|length > 0 %}
+    <div class="item-section">
+        <h2>Genres</h2>
+        <div class="cast-list">
+            {% for g in meta.genres %}<span class="cast-chip">{{ g }}</span>{% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% if meta.cast is defined and meta.cast|length > 0 %}
+    <div class="item-section">
+        <h2>Cast</h2>
+        <div class="cast-list">
+            {% for person in meta.cast %}<span class="cast-chip">{{ person }}</span>{% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+
+{# ── Seasons / Albums ── #}
+<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
+    {{ type == 'shows' ? 'Seasons' : 'Albums' }}
+</h2>
+
+<div class="item-list">
+    {% for entry in entries %}
+        <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
+            {% if entry.poster %}
+                <img src="{{ entry.poster }}" class="item-thumb" alt="">
+            {% elseif entry.is_dir %}
+                <span class="item-icon">📁</span>
+            {% else %}
+                <span class="item-icon">{{ typeIcon[type] }}</span>
+            {% endif %}
+            <span class="item-name">{{ entry.title ?? entry.name }}</span>
+            <span class="item-meta">
+                {% if entry.is_dir %}
+                    folder
+                {% elseif entry.season is defined and entry.season %}
+                    S{{ '%02d'|format(entry.season) }}{% if entry.episode %}E{{ '%02d'|format(entry.episode) }}{% endif %}
+                {% endif %}
+            </span>
+        </a>
+    {% else %}
+        <p style="color:var(--muted);">Nothing found in this directory.</p>
+    {% endfor %}
+</div>
+{% endblock %}

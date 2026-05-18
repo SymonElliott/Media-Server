@@ -54,26 +54,49 @@ class Connection
     {
         $this->pdo->exec(<<<SQL
             CREATE TABLE IF NOT EXISTS media (
-                id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                type         TEXT NOT NULL,
-                path         TEXT NOT NULL UNIQUE,
-                filename     TEXT NOT NULL,
-                extension    TEXT NOT NULL,
-                size         INTEGER DEFAULT 0,
-                title        TEXT,
-                author       TEXT,
-                series       TEXT,
-                show_name    TEXT,
-                season       INTEGER,
-                episode      INTEGER,
-                year         INTEGER,
-                metadata     TEXT DEFAULT '{}',
-                indexed_at   DATETIME DEFAULT CURRENT_TIMESTAMP
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                type                TEXT NOT NULL,
+                path                TEXT NOT NULL UNIQUE,
+                filename            TEXT NOT NULL,
+                extension           TEXT NOT NULL,
+                size                INTEGER DEFAULT 0,
+                title               TEXT,
+                author              TEXT,
+                series              TEXT,
+                show_name           TEXT,
+                season              INTEGER,
+                episode             INTEGER,
+                year                INTEGER,
+                description         TEXT,
+                poster              TEXT,
+                external_id         TEXT,
+                external_source     TEXT,
+                metadata            TEXT DEFAULT '{}',
+                metadata_fetched_at DATETIME,
+                indexed_at          DATETIME DEFAULT CURRENT_TIMESTAMP
             );
 
-            CREATE INDEX IF NOT EXISTS idx_media_type ON media(type);
-            CREATE INDEX IF NOT EXISTS idx_media_show ON media(show_name);
+            CREATE INDEX IF NOT EXISTS idx_media_type   ON media(type);
+            CREATE INDEX IF NOT EXISTS idx_media_show   ON media(show_name);
             CREATE INDEX IF NOT EXISTS idx_media_author ON media(author);
         SQL);
+
+        // Add columns that existing DBs won't have yet
+        $existing = array_column(
+            $this->pdo->query('PRAGMA table_info(media)')->fetchAll(),
+            'name'
+        );
+        foreach ([
+            'description'         => 'TEXT',
+            'poster'              => 'TEXT',
+            'still'               => 'TEXT',
+            'external_id'         => 'TEXT',
+            'external_source'     => 'TEXT',
+            'metadata_fetched_at' => 'DATETIME',
+        ] as $col => $type) {
+            if (!in_array($col, $existing, true)) {
+                $this->pdo->exec("ALTER TABLE media ADD COLUMN $col $type");
+            }
+        }
     }
 }

@@ -3,19 +3,27 @@
 declare(strict_types=1);
 
 use App\Controllers\LibraryController;
+use App\Controllers\MediaController;
 use App\Database\Connection;
 use App\Services\LibraryScanner;
+use App\Services\Metadata\MetadataService;
+use App\Services\Metadata\MusicBrainzProvider;
+use App\Services\Metadata\OpenLibraryProvider;
+use App\Services\Metadata\TmdbProvider;
 use App\Services\StreamService;
+use GuzzleHttp\Client;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
 return [
     Environment::class => function () {
         $loader = new FilesystemLoader(__DIR__ . '/../../templates');
-        return new Environment($loader, [
+        $env    = new Environment($loader, [
             'cache'       => false,
             'auto_reload' => true,
         ]);
+        $env->addFilter(new \Twig\TwigFilter('json_decode', fn($v) => json_decode($v ?? '{}', true) ?? []));
+        return $env;
     },
 
     Connection::class => function () {
@@ -33,11 +41,46 @@ return [
         return new StreamService($_ENV['LIBRARY_PATH'] ?? '/library');
     },
 
+    Client::class => function () {
+        return new Client(['timeout' => 15, 'http_errors' => false]);
+    },
+
+    TmdbProvider::class => function ($c) {
+        return new TmdbProvider($c->get(Client::class), $_ENV['TMDB_API_KEY'] ?? '');
+    },
+
+    MusicBrainzProvider::class => function ($c) {
+        return new MusicBrainzProvider($c->get(Client::class), $_ENV['MUSICBRAINZ_USER_AGENT'] ?? 'MediaServer/1.0');
+    },
+
+    OpenLibraryProvider::class => function ($c) {
+        return new OpenLibraryProvider($c->get(Client::class));
+    },
+
+    MetadataService::class => function ($c) {
+        return new MetadataService(
+            $c->get(Connection::class),
+            $c->get(TmdbProvider::class),
+            $c->get(MusicBrainzProvider::class),
+            $c->get(OpenLibraryProvider::class),
+            $c->get(Client::class),
+            __DIR__ . '/../../public/covers'
+        );
+    },
+
+    MediaController::class => function ($c) {
+        return new MediaController(
+            $c->get(Connection::class),
+            $c->get(MetadataService::class)
+        );
+    },
+
     LibraryController::class => function ($c) {
         return new LibraryController(
             $c->get(Environment::class),
             $c->get(Connection::class),
             $c->get(LibraryScanner::class),
+            $c->get(MetadataService::class),
             $_ENV['LIBRARY_PATH'] ?? '/library'
         );
     },

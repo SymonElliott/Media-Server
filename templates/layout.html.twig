@@ -107,10 +107,12 @@
 
         /* ── List view ── */
         .item-list { display: flex; flex-direction: column; gap: 0.5rem; }
+        .item-row-wrap { display: flex; align-items: stretch; }
         .item-row {
+            flex: 1;
             background: var(--surface);
             border: 1px solid var(--border);
-            border-radius: 6px;
+            border-radius: 6px 0 0 6px;
             padding: 0.75rem 1rem;
             display: flex;
             align-items: center;
@@ -119,10 +121,22 @@
             color: var(--text);
             transition: border-color 0.15s;
         }
+        /* When no sibling menu button, restore full border-radius */
+        .item-row:only-child,
+        .item-list > .item-row { border-radius: 6px; }
         .item-row:hover { border-color: var(--accent); }
         .item-row .item-icon { font-size: 1.3rem; flex-shrink: 0; }
         .item-row .item-name { flex: 1; font-weight: 500; }
         .item-row .item-meta { font-size: 0.8rem; color: var(--muted); white-space: nowrap; }
+        /* Menu button adjacent to item-row inside a wrap */
+        .item-row-wrap .item-menu-btn {
+            background: var(--surface); border: 1px solid var(--border); border-left: none;
+            border-radius: 0 6px 6px 0; padding: 0 0.75rem; font-size: 1rem;
+            color: var(--muted); cursor: pointer; transition: color 0.15s, background 0.15s;
+            font-family: inherit; letter-spacing: 1px;
+        }
+        .item-row-wrap .item-menu-btn:hover,
+        .item-row-wrap .item-menu-btn.active { color: var(--text); background: var(--surface2); }
 
         /* ── Breadcrumb ── */
         .breadcrumb { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 1.5rem; font-size: 0.9rem; color: var(--muted); }
@@ -135,6 +149,70 @@
         .player-wrap video,
         .player-wrap audio { width: 100%; display: block; }
         .player-wrap audio  { padding: 1rem; }
+
+        /* ── Play placeholder ── */
+        .player-placeholder {
+            position: relative;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+            cursor: pointer;
+            background: var(--surface);
+            border: 1px solid var(--border);
+        }
+        .placeholder-bg {
+            display: block;
+            width: 100%;
+            max-height: 480px;
+            object-fit: cover;
+            filter: brightness(0.45);
+        }
+        .placeholder-bg--blank {
+            height: 260px;
+            background: var(--surface2);
+        }
+        .placeholder-bg--square {
+            max-height: 280px;
+            object-fit: contain;
+            background: #000;
+        }
+        .play-btn {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 0.5rem;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            color: #fff;
+        }
+        .play-icon {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.15);
+            border: 2px solid rgba(255,255,255,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            padding-left: 4px; /* optical center for ▶ */
+            backdrop-filter: blur(4px);
+            transition: background 0.15s, transform 0.1s;
+        }
+        .player-placeholder:hover .play-icon {
+            background: rgba(255,255,255,0.25);
+            transform: scale(1.06);
+        }
+        .play-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.6);
+        }
 
         /* ── Meta table ── */
         .meta-table { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -170,13 +248,322 @@
             padding: 1.5rem;
             text-decoration: none;
             color: var(--text);
-            transition: border-color 0.15s;
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s;
         }
         .stat-card:hover { border-color: var(--accent); }
         .stat-card .stat-icon  { font-size: 2.2rem; margin-bottom: 0.75rem; }
         .stat-card .stat-label { font-size: 0.85rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
         .stat-card .stat-count { font-size: 2rem; font-weight: 700; }
         .stat-card .stat-sub   { font-size: 0.8rem; color: var(--muted); margin-top: 0.2rem; }
+
+        /* ── Item detail layout (entity_detail / directory) ── */
+        .item-layout { display: flex; gap: 2rem; align-items: flex-start; }
+        .item-poster { flex-shrink: 0; width: 220px; }
+        .item-poster img { width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block; }
+        .item-body { flex: 1; min-width: 0; }
+        .item-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+        .item-subtitle { font-size: 0.9rem; color: var(--muted); margin-top: 0.3rem; display: flex; flex-wrap: wrap; gap: 0.25rem; align-items: center; }
+        .item-subtitle .sep { color: var(--border); }
+        .item-description { color: var(--muted); line-height: 1.7; margin-bottom: 1.5rem; font-size: 0.95rem; }
+        .item-section { margin-bottom: 1.5rem; }
+        .item-section h2 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 0.5rem; }
+
+        /* ── Cast chips ── */
+        .cast-list { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+        .cast-chip { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 0.2rem 0.7rem; font-size: 0.82rem; color: var(--text); }
+
+        /* ── Item hero banner (item detail page) ── */
+        .item-hero {
+            position: relative;
+            margin: 0 -2rem 2.5rem;
+            min-height: 440px;
+            display: flex;
+            align-items: flex-end;
+            overflow: hidden;
+            background: #060606;
+        }
+        .item-hero-bg {
+            position: absolute;
+            inset: 0;
+            background-image: var(--hero-poster, none);
+            background-size: cover;
+            background-position: center 20%;
+            filter: blur(10px) brightness(0.28);
+            transform: scale(1.1);
+        }
+        .item-hero-overlay {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top,
+                rgba(13,13,13,0.98) 0%,
+                rgba(13,13,13,0.55) 50%,
+                rgba(13,13,13,0.1) 100%);
+        }
+        .item-hero-content {
+            position: relative;
+            z-index: 1;
+            padding: 2.5rem 2rem 2.5rem;
+            width: 100%;
+            display: flex;
+            align-items: flex-end;
+            gap: 2rem;
+        }
+        .item-hero-poster {
+            flex-shrink: 0;
+            width: 160px;
+        }
+        .item-hero-poster img {
+            width: 100%;
+            border-radius: 8px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            display: block;
+        }
+        .item-hero-info { flex: 1; min-width: 0; }
+        .item-hero-eyebrow {
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1.4px;
+            color: rgba(255,255,255,0.45);
+            margin-bottom: 0.5rem;
+        }
+        .item-hero h1 {
+            font-size: clamp(1.8rem, 4vw, 3rem);
+            font-weight: 800;
+            color: #fff;
+            line-height: 1.1;
+            margin-bottom: 0.6rem;
+            text-shadow: 0 2px 20px rgba(0,0,0,0.7);
+        }
+        .item-hero-sub {
+            font-size: 0.9rem;
+            color: rgba(255,255,255,0.55);
+            margin-bottom: 1.75rem;
+            letter-spacing: 0.2px;
+        }
+        .item-hero-actions {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+        }
+        .btn-play-hero {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            background: #fff;
+            color: #000;
+            padding: 0.6rem 1.5rem;
+            border-radius: 6px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 0.95rem;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            letter-spacing: 0.2px;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .btn-play-hero:hover { background: rgba(255,255,255,0.85); transform: scale(1.02); }
+
+        /* ── Item detail body (below hero) ── */
+        .item-detail-body { max-width: 900px; }
+        .item-detail-body .item-description {
+            color: var(--muted); line-height: 1.8; margin-bottom: 2rem; font-size: 0.95rem;
+        }
+        .item-detail-body .item-section { margin-bottom: 1.75rem; }
+        .item-detail-body .item-section h2 {
+            font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.8px;
+            color: var(--muted); margin-bottom: 0.6rem;
+        }
+        .hero-audio { width: 100%; max-width: 480px; accent-color: var(--accent); }
+
+        @media (max-width: 640px) {
+            .item-hero { margin: 0 -1rem 2rem; min-height: 0; }
+            .item-hero-content { flex-direction: column; align-items: flex-start; padding: 2rem 1rem 1.75rem; gap: 1.25rem; }
+            .item-hero-poster { width: 110px; }
+            .item-hero h1 { font-size: 1.6rem; }
+        }
+
+        /* ── Buttons ── */
+        .btn-refresh {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--muted); padding: 0.4rem 0.85rem; border-radius: 6px;
+            font-size: 0.82rem; cursor: pointer; white-space: nowrap;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .btn-refresh:hover { border-color: var(--accent); color: var(--accent); }
+        .btn-play {
+            display: inline-block; background: var(--accent); color: #fff;
+            padding: 0.6rem 1.2rem; border-radius: 6px; text-decoration: none;
+            font-weight: 500; font-size: 0.9rem;
+        }
+
+        /* ── Browse thumbnails ── */
+        .item-thumb { width: 40px; height: 40px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+
+        @media (max-width: 600px) {
+            .item-layout { flex-direction: column; }
+            .item-poster { width: 100%; max-width: 260px; }
+        }
+
+        /* ── Scan tile states ── */
+        .stat-card.tile-active { border-color: var(--accent); }
+        .stat-card.tile-done   { border-color: rgba(74,222,128,0.45); }
+
+        .tile-progress {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 3px;
+        }
+        .tile-progress-fill {
+            height: 100%;
+            width: 0%;
+            transition: width 0.9s ease;
+            border-radius: 0 2px 0 0;
+        }
+        .tile-active .tile-progress-fill {
+            background: var(--accent);
+        }
+        .tile-done .tile-progress-fill {
+            background: #4ade80;
+            width: 100% !important;
+            transition: none;
+        }
+        /* Shimmer for metadata phase — indeterminate when no per-type total available */
+        @keyframes shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .tile-active.tile-meta .tile-progress-fill {
+            width: 100% !important;
+            background: linear-gradient(90deg, var(--accent) 0%, var(--accent-h) 50%, var(--accent) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s linear infinite;
+        }
+
+        /* ── Ellipsis menu button ── */
+        .item-menu-btn {
+            background: none; border: none; color: var(--muted); cursor: pointer;
+            padding: 0.2rem 0.5rem; font-size: 1.1rem; border-radius: 4px;
+            flex-shrink: 0; transition: color 0.15s;
+            font-family: inherit; line-height: 1; letter-spacing: 1px;
+        }
+        .item-menu-btn:hover,
+        .item-menu-btn.active { color: var(--text); background: var(--surface2); }
+
+        /* ── Context menu dropdown ── */
+        .item-dropdown {
+            position: fixed; z-index: 300;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 7px; min-width: 140px;
+            box-shadow: 0 6px 24px rgba(0,0,0,0.5); overflow: hidden;
+        }
+        .item-dropdown button {
+            display: block; width: 100%; background: none; border: none;
+            padding: 0.55rem 1rem; text-align: left; cursor: pointer;
+            color: var(--text); font-size: 0.88rem; font-family: inherit;
+            transition: background 0.1s;
+        }
+        .item-dropdown button:hover    { background: var(--surface); }
+        .item-dropdown .dd-danger      { color: #f87171; }
+        .item-dropdown .dd-danger:hover { background: rgba(248,113,113,0.08); }
+
+        /* ── Modal ── */
+        .modal-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+            z-index: 400; display: flex; align-items: center; justify-content: center; padding: 1rem;
+        }
+        .modal-panel {
+            background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+            padding: 1.75rem; width: 100%; max-width: 580px; max-height: 92vh; overflow-y: auto;
+        }
+        .modal-head {
+            display: flex; align-items: center; justify-content: space-between; margin-bottom: 1.5rem;
+        }
+        .modal-head h2 { font-size: 1rem; font-weight: 600; }
+        .modal-close {
+            background: none; border: none; color: var(--muted); cursor: pointer;
+            font-size: 1.1rem; padding: 0.2rem 0.4rem; border-radius: 4px;
+        }
+        .modal-close:hover { color: var(--text); }
+        .form-group { margin-bottom: 1rem; }
+        .form-group label {
+            display: block; font-size: 0.75rem; color: var(--muted);
+            text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 0.3rem;
+        }
+        .form-group input, .form-group textarea, .form-group select {
+            width: 100%; background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 5px; color: var(--text); padding: 0.5rem 0.75rem;
+            font-family: inherit; font-size: 0.9rem;
+        }
+        .form-group input:focus, .form-group textarea:focus { outline: none; border-color: var(--accent); }
+        .form-group textarea { resize: vertical; min-height: 80px; }
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
+        .btn-primary {
+            background: var(--accent); color: #fff; border: none;
+            padding: 0.55rem 1.2rem; border-radius: 5px; cursor: pointer;
+            font-family: inherit; font-size: 0.9rem; font-weight: 500;
+        }
+        .btn-primary:hover { background: var(--accent-h); }
+        .btn-secondary {
+            background: var(--surface2); color: var(--text);
+            border: 1px solid var(--border); padding: 0.55rem 1.2rem;
+            border-radius: 5px; cursor: pointer; font-family: inherit; font-size: 0.9rem;
+        }
+        .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+        /* ── Metadata search panel (inside modal) ── */
+        .match-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            border-top: 1px solid var(--border); padding-top: 1.25rem; margin-top: 1.25rem;
+        }
+        .match-bar span { font-size: 0.82rem; color: var(--muted); }
+        .btn-change-match {
+            background: none; border: 1px solid var(--border); color: var(--muted);
+            padding: 0.3rem 0.75rem; border-radius: 5px; font-size: 0.82rem;
+            cursor: pointer; font-family: inherit; transition: border-color 0.15s, color 0.15s;
+        }
+        .btn-change-match:hover { border-color: var(--accent); color: var(--accent); }
+        .search-panel { margin-top: 1rem; }
+        .search-input-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+        .search-input-row input { flex: 1; }
+        .search-results { display: flex; flex-direction: column; gap: 0.4rem; max-height: 280px; overflow-y: auto; }
+        .search-result-card {
+            display: flex; gap: 0.75rem; align-items: center;
+            background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 6px; padding: 0.5rem 0.75rem; cursor: pointer;
+            transition: border-color 0.15s;
+        }
+        .search-result-card:hover { border-color: var(--accent); }
+        .search-result-card.selected { border-color: var(--accent); background: rgba(91,156,246,0.08); }
+        .result-thumb {
+            width: 36px; height: 54px; object-fit: cover; border-radius: 3px;
+            flex-shrink: 0; background: var(--border);
+        }
+        .result-info { flex: 1; min-width: 0; }
+        .result-title { font-size: 0.88rem; font-weight: 500; }
+        .result-meta  { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .search-empty { font-size: 0.85rem; color: var(--muted); text-align: center; padding: 1rem; }
+
+        /* ── Item scan spinners ── */
+        @keyframes item-spin { to { transform: rotate(360deg); } }
+        .item-row.item-scanning { border-color: var(--accent); }
+        .item-row.item-scanning::after {
+            content: '';
+            display: block;
+            width: 14px; height: 14px;
+            border: 2px solid rgba(91,156,246,0.2);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: item-spin 0.7s linear infinite;
+            flex-shrink: 0;
+        }
+        .item-row.item-scanned { border-color: rgba(74,222,128,0.45); transition: border-color 0.4s; }
+        .item-row.item-scanned::after { display: none; }
 
         /* ── Toast ── */
         #toast {
@@ -209,31 +596,282 @@
 
     <div id="toast"></div>
 
+    <!-- ── Context menu dropdown (singleton) ── -->
+    <div id="item-dropdown" class="item-dropdown" style="display:none;"></div>
+
+    <!-- ── Edit metadata modal ── -->
+    <div id="edit-modal" class="modal-overlay" style="display:none;" onclick="onModalOverlayClick(event)">
+        <div class="modal-panel" onclick="event.stopPropagation()">
+            <div class="modal-head">
+                <h2>Edit Metadata</h2>
+                <button class="modal-close" onclick="closeEditModal()">✕</button>
+            </div>
+            <form id="edit-form" onsubmit="submitEditForm(event)">
+                <input type="hidden" id="edit-id">
+                <input type="hidden" id="edit-media-type">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Title</label>
+                        <input type="text" id="edit-title" name="title">
+                    </div>
+                    <div class="form-group">
+                        <label>Year</label>
+                        <input type="number" id="edit-year" name="year" min="1900" max="2100">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="edit-description" name="description"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Author / Artist</label>
+                        <input type="text" id="edit-author" name="author">
+                    </div>
+                    <div class="form-group">
+                        <label>Series / Album</label>
+                        <input type="text" id="edit-series" name="series">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Season</label>
+                        <input type="number" id="edit-season" name="season" min="1">
+                    </div>
+                    <div class="form-group">
+                        <label>Episode</label>
+                        <input type="number" id="edit-episode" name="episode" min="1">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Poster URL</label>
+                    <input type="text" id="edit-poster" name="poster" placeholder="https://… or leave blank">
+                </div>
+
+                <!-- Matched metadata section -->
+                <div class="match-bar">
+                    <span id="match-label">No external match</span>
+                    <button type="button" class="btn-change-match" onclick="toggleSearchPanel()">Change Matched Metadata</button>
+                </div>
+                <div id="search-panel" class="search-panel" style="display:none;">
+                    <div class="search-input-row">
+                        <input type="text" id="search-query" placeholder="Search…" onkeydown="if(event.key==='Enter'){event.preventDefault();runMetadataSearch();}">
+                        <button type="button" class="btn-secondary" onclick="runMetadataSearch()">Search</button>
+                    </div>
+                    <div id="search-results" class="search-results"></div>
+                </div>
+
+                <div class="modal-actions">
+                    <button type="button" class="btn-secondary" onclick="closeEditModal()">Cancel</button>
+                    <button type="submit" class="btn-primary" id="edit-save-btn">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
+        let scanPollTimer  = null;
+        let wasScanning    = false;
+        let activeTileType = null;
+        let doneTileTypes  = new Set();
+        let spinItemId     = null;
+        let spinGroupName  = null;
+
+        // ── Tile helpers ──────────────────────────────────────────────────
+
+        function tileFill(type, pct) {
+            const card = document.querySelector(`.stat-card[data-type="${type}"]`);
+            if (!card) return;
+            const fill = card.querySelector('.tile-progress-fill');
+            if (fill) fill.style.width = pct + '%';
+        }
+
+        function tileSetActive(type, isMetaPhase) {
+            const card = document.querySelector(`.stat-card[data-type="${type}"]`);
+            if (!card) return;
+            card.classList.remove('tile-done', 'tile-meta');
+            card.classList.add('tile-active');
+            if (isMetaPhase) card.classList.add('tile-meta');
+        }
+
+        function tileSetDone(type) {
+            const card = document.querySelector(`.stat-card[data-type="${type}"]`);
+            if (!card) return;
+            card.classList.remove('tile-active', 'tile-meta');
+            card.classList.add('tile-done');
+        }
+
+        // ── Item spinners ─────────────────────────────────────────────────
+
+        function setSpinner(sel) {
+            const el = document.querySelector(sel);
+            if (el) el.classList.add('item-scanning');
+        }
+
+        function clearSpinner(sel, flash) {
+            const el = document.querySelector(sel);
+            if (!el) return;
+            el.classList.remove('item-scanning');
+            if (flash) {
+                el.classList.add('item-scanned');
+                setTimeout(() => el.classList.remove('item-scanned'), 1500);
+            }
+        }
+
+        function clearAllSpinners() {
+            if (spinItemId    !== null) { clearSpinner(`[data-media-id="${spinItemId}"]`,    false); spinItemId    = null; }
+            if (spinGroupName !== null) { clearSpinner(`[data-group-name="${spinGroupName}"]`, false); spinGroupName = null; }
+            document.querySelectorAll('.item-scanning, .item-scanned').forEach(el =>
+                el.classList.remove('item-scanning', 'item-scanned')
+            );
+        }
+
+        function clearTileStates() {
+            document.querySelectorAll('.stat-card[data-type]').forEach(c => {
+                c.classList.remove('tile-active', 'tile-done', 'tile-meta');
+                const fill = c.querySelector('.tile-progress-fill');
+                if (fill) fill.style.width = '0%';
+            });
+            activeTileType = null;
+            doneTileTypes.clear();
+            clearAllSpinners();
+        }
+
+        // ── Scan button text ──────────────────────────────────────────────
+
+        function scanBtnText(text) {
+            const btn = document.querySelector('.btn-scan');
+            if (btn) btn.textContent = text;
+        }
+
+        // ── Polling ───────────────────────────────────────────────────────
+
         function triggerScan() {
             const btn = document.querySelector('.btn-scan');
-            btn.textContent = 'Scanning…';
+            btn.textContent = 'Starting…';
             btn.disabled = true;
 
             fetch('/scan', { method: 'POST' })
                 .then(r => r.json())
                 .then(d => {
-                    showToast(`Scan complete — ${d.added} added, ${d.updated} updated, ${d.skipped} skipped`);
-                    btn.textContent = 'Scan Library';
-                    btn.disabled = false;
+                    if (d.error) {
+                        showToast(d.error);
+                        btn.textContent = 'Scan Library';
+                        btn.disabled = false;
+                    } else {
+                        startPolling();
+                    }
                 })
                 .catch(() => {
-                    showToast('Scan failed');
+                    showToast('Failed to start scan');
                     btn.textContent = 'Scan Library';
                     btn.disabled = false;
                 });
         }
 
-        // Mark active nav link
+        function startPolling() {
+            wasScanning = false;
+            clearTileStates();
+            const btn = document.querySelector('.btn-scan');
+            btn.textContent = 'Starting…';
+            btn.disabled = true;
+            clearTimeout(scanPollTimer);
+            pollStatus();
+        }
+
+        function pollStatus() {
+            fetch('/scan/status')
+                .then(r => r.json())
+                .then(d => {
+                    // Live-update count chips on home tiles
+                    Object.entries(d.counts ?? {}).forEach(([type, count]) => {
+                        const el = document.querySelector(`[data-count="${type}"]`);
+                        if (el) el.textContent = count;
+                    });
+
+                    if (d.scanning) {
+                        wasScanning = true;
+                        const isMeta      = d.phase === 'metadata';
+                        const typeTotals  = d.type_totals ?? {};
+                        const counts      = d.counts      ?? {};
+                        const cap         = s => s.charAt(0).toUpperCase() + s.slice(1);
+
+                        if (d.current_type) {
+                            // Transition previous active tile to done
+                            if (activeTileType && activeTileType !== d.current_type) {
+                                doneTileTypes.add(activeTileType);
+                                tileSetDone(activeTileType);
+                                tileFill(activeTileType, 100);
+                            }
+                            activeTileType = d.current_type;
+                            tileSetActive(d.current_type, isMeta);
+
+                            // Per-tile progress during file indexing
+                            if (!isMeta && typeTotals[d.current_type] > 0) {
+                                const pct = Math.min(100, Math.round(
+                                    (counts[d.current_type] ?? 0) / typeTotals[d.current_type] * 100
+                                ));
+                                tileFill(d.current_type, pct);
+                            }
+
+                            // Button text
+                            if (d.phase === 'starting') {
+                                scanBtnText('Starting…');
+                            } else if (isMeta) {
+                                scanBtnText(`Metadata · ${cap(d.current_type)}…`);
+                            } else {
+                                const total = typeTotals[d.current_type] ?? 0;
+                                const pct   = total > 0
+                                    ? ' ' + Math.min(100, Math.round((counts[d.current_type] ?? 0) / total * 100)) + '%'
+                                    : '';
+                                scanBtnText(`Indexing ${cap(d.current_type)}…${pct}`);
+                            }
+                        } else {
+                            scanBtnText('Starting…');
+                        }
+
+                        // ── Per-item spinners ──
+                        const newItemId  = d.current_item_id  ?? null;
+                        const newGroup   = d.current_group    ?? null;
+
+                        if (newItemId !== spinItemId) {
+                            if (spinItemId !== null) clearSpinner(`[data-media-id="${spinItemId}"]`, true);
+                            spinItemId = newItemId;
+                            if (spinItemId !== null) setSpinner(`[data-media-id="${spinItemId}"]`);
+                        }
+                        if (newGroup !== spinGroupName) {
+                            if (spinGroupName !== null) clearSpinner(`[data-group-name="${spinGroupName}"]`, true);
+                            spinGroupName = newGroup;
+                            if (spinGroupName !== null) setSpinner(`[data-group-name="${spinGroupName}"]`);
+                        }
+
+                        scanPollTimer = setTimeout(pollStatus, 1000);
+                    } else {
+                        clearTileStates();
+
+                        const btn = document.querySelector('.btn-scan');
+                        btn.disabled = false;
+
+                        if (wasScanning) {
+                            wasScanning = false;
+                            btn.textContent = '✓ Scan complete';
+                            setTimeout(() => { btn.textContent = 'Scan Library'; }, 3000);
+                        } else {
+                            btn.textContent = 'Scan Library';
+                        }
+                    }
+                })
+                .catch(() => {
+                    scanPollTimer = setTimeout(pollStatus, 2000);
+                });
+        }
+
+        // ── Nav active state ──────────────────────────────────────────────
+
         (function () {
             const path = window.location.pathname;
             document.querySelectorAll('a[data-nav]').forEach(a => {
-                const href = a.getAttribute('href');
+                const href   = a.getAttribute('href');
                 const active = href === '/' ? path === '/' : path.startsWith(href);
                 if (active) a.classList.add('active');
             });
@@ -248,5 +886,233 @@
     </script>
 
     {% block scripts %}{% endblock %}
+
+    <script>
+    // ── Context menu ─────────────────────────────────────────────────────────
+
+    const dropdown    = document.getElementById('item-dropdown');
+    let   activeTrigger = null;
+
+    function openItemMenu(event, btn) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (activeTrigger === btn && dropdown.style.display !== 'none') {
+            closeDropdown(); return;
+        }
+        closeDropdown();
+
+        const id    = btn.dataset.id    || null;
+        const type  = btn.dataset.type  || '';
+        const group = btn.dataset.group || null;
+        const label = btn.dataset.label || '';
+
+        dropdown.innerHTML = '';
+
+        const edit = document.createElement('button');
+        edit.textContent = 'Edit';
+        edit.onclick = () => { closeDropdown(); openEditModal(id, type, label); };
+        dropdown.appendChild(edit);
+
+        const del = document.createElement('button');
+        del.textContent = group ? 'Delete All' : 'Delete';
+        del.className   = 'dd-danger';
+        del.onclick     = () => { closeDropdown(); handleDelete(id, type, group, label); };
+        dropdown.appendChild(del);
+
+        const rect = btn.getBoundingClientRect();
+        dropdown.style.display = 'block';
+        dropdown.style.top  = (rect.bottom + 4) + 'px';
+        dropdown.style.left = Math.max(4, rect.right - 144) + 'px';
+
+        btn.classList.add('active');
+        activeTrigger = btn;
+    }
+
+    function closeDropdown() {
+        dropdown.style.display = 'none';
+        if (activeTrigger) { activeTrigger.classList.remove('active'); activeTrigger = null; }
+    }
+
+    document.addEventListener('click', e => {
+        if (!dropdown.contains(e.target) && activeTrigger && !activeTrigger.contains(e.target)) closeDropdown();
+    });
+
+    // ── Delete ───────────────────────────────────────────────────────────────
+
+    function handleDelete(id, type, group, label) {
+        const what  = group ? `all files for "${label}"` : `"${label}"`;
+        const multi = group ? ' This will delete all associated files.' : '';
+        if (!confirm(`Delete ${what} from disk?${multi}\n\nThis cannot be undone.`)) return;
+
+        const req = group
+            ? fetch('/api/media/group', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({type, name: group}) })
+            : fetch('/api/media/' + id, { method: 'DELETE' });
+
+        req.then(r => r.json()).then(d => {
+            if (d.deleted !== undefined) location.reload();
+            else showToast(d.error || 'Delete failed');
+        }).catch(() => showToast('Delete failed'));
+    }
+
+    // ── Edit modal ───────────────────────────────────────────────────────────
+
+    let editSelectedMatch = null;
+
+    function openEditModal(id, type, label) {
+        if (!id) { showToast('Edit not available for this item'); return; }
+        editSelectedMatch = null;
+
+        fetch('/api/media/' + id)
+            .then(r => r.json())
+            .then(item => {
+                document.getElementById('edit-id').value          = item.id;
+                document.getElementById('edit-media-type').value  = item.type;
+                document.getElementById('edit-title').value       = item.title       || '';
+                document.getElementById('edit-year').value        = item.year        || '';
+                document.getElementById('edit-description').value = item.description || '';
+                document.getElementById('edit-author').value      = item.author      || '';
+                document.getElementById('edit-series').value      = item.series      || '';
+                document.getElementById('edit-season').value      = item.season      || '';
+                document.getElementById('edit-episode').value     = item.episode     || '';
+                document.getElementById('edit-poster').value      = item.poster      || '';
+
+                const src = item.external_source && item.external_id
+                    ? item.external_source.toUpperCase() + ' #' + item.external_id
+                    : 'No external match';
+                document.getElementById('match-label').textContent = src;
+
+                // Pre-fill search query — for books strip any "Author - " prefix from the title
+                let searchQuery;
+                if (['books', 'audiobooks'].includes(item.type)) {
+                    let t = item.title || item.filename || '';
+                    if (item.author) {
+                        const na = item.author.toLowerCase();
+                        if (t.toLowerCase().startsWith(na)) t = t.slice(item.author.length).replace(/^[\s\-:]+/, '').trim();
+                    }
+                    searchQuery = t || item.title || item.filename || '';
+                } else {
+                    searchQuery = item.show_name || item.title || item.filename || '';
+                }
+                document.getElementById('search-query').value = searchQuery;
+                document.getElementById('search-results').innerHTML = '';
+                document.getElementById('search-panel').style.display = 'none';
+
+                document.getElementById('edit-modal').style.display = 'flex';
+                document.body.style.overflow = 'hidden';
+            })
+            .catch(() => showToast('Could not load item'));
+    }
+
+    function closeEditModal() {
+        document.getElementById('edit-modal').style.display = 'none';
+        document.body.style.overflow = '';
+        editSelectedMatch = null;
+    }
+
+    function onModalOverlayClick(e) {
+        if (e.target === document.getElementById('edit-modal')) closeEditModal();
+    }
+
+    function submitEditForm(event) {
+        event.preventDefault();
+        const id   = document.getElementById('edit-id').value;
+        const body = {
+            title:       document.getElementById('edit-title').value,
+            year:        document.getElementById('edit-year').value        || null,
+            description: document.getElementById('edit-description').value,
+            author:      document.getElementById('edit-author').value,
+            series:      document.getElementById('edit-series').value,
+            season:      document.getElementById('edit-season').value      || null,
+            episode:     document.getElementById('edit-episode').value     || null,
+            poster:      document.getElementById('edit-poster').value,
+        };
+
+        const btn = document.getElementById('edit-save-btn');
+        btn.disabled = true; btn.textContent = 'Saving…';
+
+        const saves = [
+            fetch('/api/media/' + id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify(body) })
+        ];
+
+        if (editSelectedMatch) {
+            saves.push(
+                fetch('/api/media/' + id + '/match', {
+                    method: 'POST', headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({ source: editSelectedMatch.source, external_id: editSelectedMatch.id })
+                })
+            );
+        }
+
+        Promise.all(saves)
+            .then(() => { closeEditModal(); location.reload(); })
+            .catch(() => { showToast('Save failed'); btn.disabled = false; btn.textContent = 'Save Changes'; });
+    }
+
+    // ── Metadata search panel ─────────────────────────────────────────────────
+
+    function toggleSearchPanel() {
+        const panel = document.getElementById('search-panel');
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        if (panel.style.display === 'block') runMetadataSearch();
+    }
+
+    function runMetadataSearch() {
+        const query     = document.getElementById('search-query').value.trim();
+        const mediaType = document.getElementById('edit-media-type').value;
+        const resultsEl = document.getElementById('search-results');
+
+        if (!query) return;
+        resultsEl.innerHTML = '<p class="search-empty">Searching…</p>';
+
+        fetch('/api/metadata/search?' + new URLSearchParams({ query, media_type: mediaType }))
+            .then(r => r.json())
+            .then(results => {
+                if (!results.length) {
+                    resultsEl.innerHTML = '<p class="search-empty">No results found.</p>'; return;
+                }
+                resultsEl.innerHTML = '';
+                results.forEach(r => {
+                    const card = document.createElement('div');
+                    card.className = 'search-result-card';
+
+                    const img = document.createElement('img');
+                    img.className = 'result-thumb';
+                    img.src = r.poster_url || '';
+                    img.style.display = r.poster_url ? '' : 'none';
+                    if (!r.poster_url) {
+                        const placeholder = document.createElement('div');
+                        placeholder.className = 'result-thumb';
+                        card.appendChild(placeholder);
+                    } else {
+                        card.appendChild(img);
+                    }
+
+                    const info  = document.createElement('div');
+                    info.className = 'result-info';
+                    const title = document.createElement('div');
+                    title.className = 'result-title';
+                    title.textContent = r.title + (r.year ? ' (' + r.year + ')' : '');
+                    const meta = document.createElement('div');
+                    meta.className = 'result-meta';
+                    meta.textContent = (r.description || '') + (r.source ? ' · ' + r.source.toUpperCase() : '');
+                    info.appendChild(title);
+                    info.appendChild(meta);
+                    card.appendChild(info);
+
+                    card.addEventListener('click', () => {
+                        document.querySelectorAll('.search-result-card').forEach(c => c.classList.remove('selected'));
+                        card.classList.add('selected');
+                        editSelectedMatch = r;
+                        document.getElementById('match-label').textContent =
+                            r.source.toUpperCase() + ' #' + r.id + ' — ' + r.title;
+                    });
+
+                    resultsEl.appendChild(card);
+                });
+            })
+            .catch(() => { resultsEl.innerHTML = '<p class="search-empty">Search failed.</p>'; });
+    }
+    </script>
 </body>
 </html>

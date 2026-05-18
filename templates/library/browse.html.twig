@@ -18,7 +18,12 @@
     <span>{{ typeLabel[type] }}</span>
 </div>
 
-<h1>{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
+<div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.5rem;">
+    <h1 style="margin-bottom:0;">{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
+    <form method="post" action="/metadata/refresh-type/{{ type }}">
+        <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
+    </form>
+</div>
 
 {% if grouped %}
     {# Shows grouped by show_name / Music grouped by artist #}
@@ -26,11 +31,19 @@
         {% for item in items %}
             {% set name = item.show_name ?? item.author ?? '(Unknown)' %}
             {% set count = item.episode_count ?? item.track_count ?? 0 %}
-            <a href="/library/{{ type }}/{{ name|url_encode }}" class="item-row">
-                <span class="item-icon">{{ typeIcon[type] }}</span>
-                <span class="item-name">{{ name }}</span>
-                <span class="item-meta">{{ count }} {{ type == 'shows' ? 'episode' : 'track' }}{{ count != 1 ? 's' : '' }}</span>
-            </a>
+            {% set thumb = item.poster ?? null %}
+            <div class="item-row-wrap">
+                <a href="/library/{{ type }}/{{ name|url_encode }}" class="item-row" data-group-name="{{ name }}">
+                    {% if thumb %}
+                        <img src="{{ thumb }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">{{ typeIcon[type] }}</span>
+                    {% endif %}
+                    <span class="item-name">{{ name }}</span>
+                    <span class="item-meta">{{ count }} {{ type == 'shows' ? 'episode' : 'track' }}{{ count != 1 ? 's' : '' }}</span>
+                </a>
+                <button class="item-menu-btn" data-type="{{ type }}" data-group="{{ name }}" data-label="{{ name }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
         {% else %}
             <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
         {% endfor %}
@@ -39,15 +52,30 @@
     {# Flat list: movies, books, audiobooks #}
     <div class="item-list">
         {% for item in items %}
-            {% set rel = item.path|replace({'/'~item.filename: ''}) %}
-            <a href="/library/{{ type }}/{{ item.filename|url_encode }}" class="item-row">
-                <span class="item-icon">{{ typeIcon[type] }}</span>
-                <span class="item-name">{{ item.title ?? item.filename }}</span>
-                <span class="item-meta">
-                    {% if item.year %}{{ item.year }} · {% endif %}
-                    {{ item.extension|upper }}
-                </span>
-            </a>
+            <div class="item-row-wrap">
+                <a href="/library/{{ type }}/{{ item.relative_path }}" class="item-row" data-media-id="{{ item.id }}">
+                    {% if item.poster %}
+                        <img src="{{ item.poster }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">{{ typeIcon[type] }}</span>
+                    {% endif %}
+                    <span class="item-name">{{ item.title ?? item.filename }}</span>
+                    <span class="item-meta">
+                        {% set parts = [] %}
+                        {% if item.author %}{% set parts = parts|merge([item.author]) %}{% endif %}
+                        {% if item.series and item.series != (item.title ?? item.filename) %}
+                            {% set parts = parts|merge([item.series]) %}
+                        {% endif %}
+                        {% if item.year %}{% set parts = parts|merge([item.year ~ '']) %}{% endif %}
+                        {# Show format only for types where it meaningfully differs (books, audiobooks) #}
+                        {% if type in ['books', 'audiobooks'] %}
+                            {% set parts = parts|merge([item.extension|upper]) %}
+                        {% endif %}
+                        {{ parts|join(' · ') }}
+                    </span>
+                </a>
+                <button class="item-menu-btn" data-id="{{ item.id }}" data-type="{{ type }}" data-label="{{ (item.title ?? item.filename)|e }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
         {% else %}
             <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
         {% endfor %}

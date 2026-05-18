@@ -16,11 +16,12 @@
 <div class="stat-grid">
     {% for type, cfg in typeConfig %}
         {% set info = counts[type] ?? null %}
-        <a href="/library/{{ type }}" class="stat-card">
+        <a href="/library/{{ type }}" class="stat-card" data-type="{{ type }}">
             <div class="stat-icon">{{ cfg.icon }}</div>
             <div class="stat-label">{{ cfg.label }}</div>
-            <div class="stat-count">{{ info ? info.count : 0 }}</div>
+            <div class="stat-count" data-count="{{ type }}">{{ info ? info.count : 0 }}</div>
             <div class="stat-sub">{{ cfg.unit }}{% if info and info.count != 1 %}s{% endif %}</div>
+            <div class="tile-progress"><div class="tile-progress-fill"></div></div>
         </a>
     {% endfor %}
 </div>
@@ -30,4 +31,17 @@
     No media indexed yet. Click <strong>Scan Library</strong> in the nav to index your files.
 </p>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    fetch('/scan/status')
+        .then(r => r.json())
+        .then(d => {
+            if (d.scanning) {
+                wasScanning = true;
+                startPolling();
+            }
+        });
+</script>
 {% endblock %}
