@@ -23,6 +23,7 @@ return function (App $app): void {
     $app->get('/scan/status', LibraryController::class . ':status');
 
     $app->post('/metadata/refresh/{id}', LibraryController::class . ':refreshMetadata');
+    $app->post('/metadata/refresh-series', LibraryController::class . ':refreshSeriesMetadata');
     $app->post('/metadata/refresh-type/{type}', LibraryController::class . ':refreshTypeMetadata');
 
     // Media CRUD + metadata search/match API

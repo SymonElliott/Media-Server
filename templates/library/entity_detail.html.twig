@@ -11,54 +11,88 @@
 {% block title %}{{ name }} — MediaServer{% endblock %}
 
 {% block content %}
+{# Resolve display data: series_entity overrides entity for audiobook series pages #}
+{% set isSeries = is_series is defined and is_series %}
+{% set displayPoster  = isSeries
+    ? (series_entity.author_image is defined and series_entity.author_image
+        ? series_entity.author_image
+        : (series_entity.poster is defined and series_entity.poster ? series_entity.poster : entity.poster))
+    : entity.poster %}
+{% set displayDesc    = (isSeries and series_entity.description is defined and series_entity.description) ? series_entity.description : entity.description %}
+{% set displayFetched = (isSeries and series_entity is defined and series_entity) ? series_entity.metadata_fetched_at : entity.metadata_fetched_at %}
+{% set displayMeta    = (isSeries and series_meta is defined and series_meta) ? series_meta : meta %}
+{% set displayYear    = isSeries ? entity.year : (series_entity.year is defined and series_entity.year ? series_entity.year : entity.year) %}
+
 <div class="breadcrumb">
     <a href="/">Home</a>
     <span class="sep">/</span>
     <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
+    {% if type == 'audiobooks' and entity.author %}
+        <span class="sep">/</span>
+        <a href="/library/{{ type }}/{{ entity.author|url_encode }}">{{ entity.author }}</a>
+        {% if entity.series and entity.series != name %}
+            <span class="sep">/</span>
+            <a href="/library/{{ type }}/{{ entity.author|url_encode }}/{{ entity.series|url_encode }}">{{ entity.series }}</a>
+        {% endif %}
+    {% endif %}
     <span class="sep">/</span>
     <span>{{ name }}</span>
 </div>
 
 {# ── Hero Banner ── #}
-<div class="item-hero"{% if entity.poster %} style="--hero-poster: url('{{ entity.poster }}')"{% endif %}>
+<div class="item-hero"{% if displayPoster %} style="--hero-poster: url('{{ displayPoster }}')"{% endif %}>
     <div class="item-hero-bg"></div>
     <div class="item-hero-overlay"></div>
     <div class="item-hero-content">
 
         {# Poster column #}
-        {% if entity.poster %}
+        {% if displayPoster %}
         <div class="item-hero-poster">
-            <img src="{{ entity.poster }}" alt="{{ name }}">
+            <img src="{{ displayPoster }}" alt="{{ name }}">
         </div>
         {% endif %}
 
         {# Info column #}
         <div class="item-hero-info">
-            <div class="item-hero-eyebrow">{{ typeLabel[type] }}</div>
+            {% if (isSeries or type == 'audiobooks') and entity.author %}
+                <div class="item-hero-eyebrow">{{ entity.author }}</div>
+            {% else %}
+                <div class="item-hero-eyebrow">{{ typeLabel[type] }}</div>
+            {% endif %}
             <h1>{{ name }}</h1>
 
             <div class="item-hero-sub">
-                {% set parts = [] %}
-                {% if entity.year %}{% set parts = parts|merge([entity.year ~ '']) %}{% endif %}
-                {% if meta.networks is defined and meta.networks|length > 0 %}
-                    {% set parts = parts|merge([meta.networks|join(', ')]) %}
+                {% if isSeries %}
+                    {{ entity.year ?? '' }}
+                {% else %}
+                    {% set parts = [] %}
+                    {% if displayYear %}{% set parts = parts|merge([displayYear ~ '']) %}{% endif %}
+                    {% if displayMeta.networks is defined and displayMeta.networks|length > 0 %}
+                        {% set parts = parts|merge([displayMeta.networks|join(', ')]) %}
+                    {% endif %}
+                    {% if displayMeta.status is defined and displayMeta.status %}
+                        {% set parts = parts|merge([displayMeta.status]) %}
+                    {% endif %}
+                    {% if displayMeta.artist is defined %}
+                        {% set parts = parts|merge([displayMeta.artist]) %}
+                    {% endif %}
+                    {% if displayMeta.genres is defined and displayMeta.genres|length > 0 %}
+                        {% set parts = parts|merge([displayMeta.genres|slice(0, 2)|join(' / ')]) %}
+                    {% endif %}
+                    {{ parts|join(' · ') }}
                 {% endif %}
-                {% if meta.status is defined and meta.status %}
-                    {% set parts = parts|merge([meta.status]) %}
-                {% endif %}
-                {% if meta.artist is defined %}
-                    {% set parts = parts|merge([meta.artist]) %}
-                {% endif %}
-                {% if meta.genres is defined and meta.genres|length > 0 %}
-                    {% set parts = parts|merge([meta.genres|slice(0, 2)|join(' / ')]) %}
-                {% endif %}
-                {{ parts|join(' · ') }}
             </div>
 
             <div class="item-hero-actions">
-                <form method="post" action="/metadata/refresh/{{ entity.id }}">
-                    <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
-                </form>
+                {# Ellipsis menu for group/entity-level actions #}
+                {% set deleteGroup = (type == 'audiobooks' and audiobook_section == 'chapters') ? entity.book_name : name %}
+                {% set deleteCol = isSeries ? 'series' : null %}
+                <button class="btn-refresh"
+                    data-type="{{ type }}"
+                    data-group="{{ deleteGroup }}"
+                    {% if deleteCol %}data-col="{{ deleteCol }}"{% endif %}
+                    data-label="{{ name|e }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
             </div>
         </div>
 
@@ -68,58 +102,144 @@
 {# ── Body ── #}
 <div class="item-detail-body">
 
-    {% if entity.description %}
-        <p class="item-description">{{ entity.description }}</p>
-    {% elseif not entity.metadata_fetched_at %}
-        <p class="item-description" style="font-style:italic;">
-            No metadata yet — click ↻ Refresh Metadata above or run a scan.
-        </p>
-    {% endif %}
+    {% if not isSeries %}
+        {% if displayDesc %}
+            <p class="item-description">{{ displayDesc }}</p>
+        {% elseif not displayFetched %}
+            <p class="item-description" style="font-style:italic;">
+                No metadata yet — click ↻ Refresh Metadata above or run a scan.
+            </p>
+        {% endif %}
 
-    {% if meta.genres is defined and meta.genres|length > 0 %}
-    <div class="item-section">
-        <h2>Genres</h2>
-        <div class="cast-list">
-            {% for g in meta.genres %}<span class="cast-chip">{{ g }}</span>{% endfor %}
+        {% if displayMeta.genres is defined and displayMeta.genres|length > 0 %}
+        <div class="item-section">
+            <h2>Genres</h2>
+            <div class="cast-list">
+                {% for g in displayMeta.genres %}<span class="cast-chip">{{ g }}</span>{% endfor %}
+            </div>
         </div>
-    </div>
+        {% endif %}
+
+        {% if displayMeta.cast is defined and displayMeta.cast|length > 0 %}
+        <div class="item-section">
+            <h2>Cast</h2>
+            <div class="cast-list">
+                {% for person in displayMeta.cast %}<span class="cast-chip">{{ person }}</span>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
     {% endif %}
 
-    {% if meta.cast is defined and meta.cast|length > 0 %}
+    {% if type == 'audiobooks' and not isSeries %}
     <div class="item-section">
-        <h2>Cast</h2>
-        <div class="cast-list">
-            {% for person in meta.cast %}<span class="cast-chip">{{ person }}</span>{% endfor %}
+        <h2>Details</h2>
+        <div class="meta-table">
+            <table>
+                {% if entity.author %}<tr><td>Author</td><td>{{ entity.author }}</td></tr>{% endif %}
+                {% if entity.series %}<tr><td>Series</td><td>{{ entity.series }}{% if entity.series_order %} #{{ entity.series_order|number_format(1) }}{% endif %}</td></tr>{% endif %}
+                {% if entity.year %}<tr><td>Year</td><td>{{ entity.year }}</td></tr>{% endif %}
+                {% if entity.extension %}<tr><td>Format</td><td>{{ entity.extension|upper }}</td></tr>{% endif %}
+                {% if entity.duration %}
+                    {% set dh = (entity.duration / 3600)|round(0, 'floor') %}
+                    {% set dm = ((entity.duration % 3600) / 60)|round(0, 'floor') %}
+                    <tr><td>Duration</td><td>{{ dh > 0 ? dh ~ 'h ' : '' }}{{ dm }}m</td></tr>
+                {% endif %}
+                {% if entity.size %}<tr><td>Size</td><td>{{ (entity.size / 1048576)|round(1) }} MB</td></tr>{% endif %}
+                {% if entity.filename %}<tr><td>Filename</td><td style="word-break:break-all; font-size:0.8rem; color:var(--muted);">{{ entity.filename }}</td></tr>{% endif %}
+            </table>
         </div>
     </div>
     {% endif %}
 
 </div>
 
-{# ── Seasons / Albums ── #}
+{# ── Seasons / Albums / Chapters ── #}
 <h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
-    {{ type == 'shows' ? 'Seasons' : 'Albums' }}
+    {% if type == 'shows' %}Seasons
+    {% elseif type == 'audiobooks' %}{{ audiobook_section == 'chapters' ? 'Chapters' : 'Books' }}
+    {% else %}Albums{% endif %}
 </h2>
 
 <div class="item-list">
     {% for entry in entries %}
-        <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
-            {% if entry.poster %}
-                <img src="{{ entry.poster }}" class="item-thumb" alt="">
-            {% elseif entry.is_dir %}
-                <span class="item-icon">📁</span>
+        {% if audiobook_section == 'chapters' %}
+            {# Chapter files: playback link + ellipsis menu when the file has a DB entry #}
+            {% if entry.id is defined and entry.id %}
+            <div class="item-row-wrap">
+                <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row" data-media-id="{{ entry.id }}">
+                    <span class="item-icon">{{ typeIcon[type] }}</span>
+                    <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                    <span class="item-meta">
+                        {% if entry.duration %}
+                            {% set dm = (entry.duration / 60)|round(0, 'floor') %}
+                            {% set ds = entry.duration % 60 %}
+                            {{ dm ~ ':' ~ (ds < 10 ? '0' : '') ~ ds }}
+                        {% endif %}
+                    </span>
+                </a>
+                <button class="item-menu-btn"
+                    data-id="{{ entry.id }}"
+                    data-type="{{ type }}"
+                    data-label="{{ (entry.title ?? entry.name)|e }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
             {% else %}
+            <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
                 <span class="item-icon">{{ typeIcon[type] }}</span>
+                <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                <span class="item-meta">
+                    {% if entry.duration %}
+                        {% set dm = (entry.duration / 60)|round(0, 'floor') %}
+                        {% set ds = entry.duration % 60 %}
+                        {{ dm ~ ':' ~ (ds < 10 ? '0' : '') ~ ds }}
+                    {% endif %}
+                </span>
+            </a>
             {% endif %}
-            <span class="item-name">{{ entry.title ?? entry.name }}</span>
-            <span class="item-meta">
-                {% if entry.is_dir %}
-                    folder
-                {% elseif entry.season is defined and entry.season %}
-                    S{{ '%02d'|format(entry.season) }}{% if entry.episode %}E{{ '%02d'|format(entry.episode) }}{% endif %}
+        {% elseif entry.id is defined and entry.id %}
+            {# Books in a series / seasons / albums: ellipsis menu #}
+            {% set bookPending = entry.metadata_fetched_at is not defined or not entry.metadata_fetched_at %}
+            <div class="item-row-wrap">
+                <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row{% if type == 'audiobooks' and bookPending %} meta-pending{% endif %}" data-media-id="{{ entry.id }}" data-scan-name="{{ entry.name }}">
+                    {% if entry.poster %}
+                        <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                    {% elseif entry.is_dir %}
+                        <span class="item-icon">{{ type == 'audiobooks' ? typeIcon[type] : '📁' }}</span>
+                    {% else %}
+                        <span class="item-icon">{{ typeIcon[type] }}</span>
+                    {% endif %}
+                    <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                    <span class="item-meta">
+                        {%- if entry.series_order is defined and entry.series_order -%}
+                            {{- entry.series_order|number_format(1) -}}
+                        {%- elseif not entry.is_dir -%}
+                            {{- entry.name|split('.')|last|upper -}}
+                        {%- endif -%}
+                    </span>
+                </a>
+                <button class="item-menu-btn"
+                    data-id="{{ entry.id }}"
+                    data-type="{{ type }}"
+                    {% if entry.is_dir %}data-group="{{ entry.name }}"{% endif %}
+                    data-label="{{ (entry.title ?? entry.name)|e }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+        {% else %}
+            {# Directories without a DB match (show seasons, music albums, unenriched dirs) #}
+            <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
+                {% if entry.poster %}
+                    <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                {% elseif entry.is_dir %}
+                    <span class="item-icon">{{ type == 'audiobooks' ? typeIcon[type] : '📁' }}</span>
+                {% else %}
+                    <span class="item-icon">{{ typeIcon[type] }}</span>
                 {% endif %}
-            </span>
-        </a>
+                <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                <span class="item-meta">
+                    {% if entry.is_dir and type != 'audiobooks' %}folder{% endif %}
+                </span>
+            </a>
+        {% endif %}
     {% else %}
         <p style="color:var(--muted);">Nothing found in this directory.</p>
     {% endfor %}

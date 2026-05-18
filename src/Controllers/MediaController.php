@@ -33,7 +33,7 @@ class MediaController
         if (!$item) return $response->withStatus(404);
 
         $body    = json_decode((string) $request->getBody(), true) ?? [];
-        $allowed = ['title', 'year', 'description', 'author', 'series', 'season', 'episode', 'poster'];
+        $allowed = ['title', 'year', 'description', 'author', 'series', 'season', 'episode', 'poster', 'series_order'];
 
         $sets = $params = [];
         foreach ($allowed as $field) {
@@ -78,11 +78,14 @@ class MediaController
             return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
         }
 
-        // Only group-capable types
-        $col = match ($type) {
-            'shows' => 'show_name',
-            'music' => 'author',
-            default => null,
+        // Only group-capable types; audiobooks support both book-level and series-level deletion
+        $colHint = $body['col'] ?? '';
+        $col = match (true) {
+            $type === 'shows'                               => 'show_name',
+            $type === 'music'                               => 'author',
+            $type === 'audiobooks' && $colHint === 'series' => 'series',
+            $type === 'audiobooks'                          => 'book_name',
+            default                                         => null,
         };
         if (!$col) {
             $response->getBody()->write(json_encode(['error' => 'not a group type']));
@@ -106,13 +109,14 @@ class MediaController
         $params    = $request->getQueryParams();
         $query     = trim($params['query'] ?? '');
         $mediaType = $params['media_type'] ?? 'movies';
+        $author    = trim($params['author'] ?? '') ?: null;
 
         if (!$query) {
             $response->getBody()->write(json_encode([]));
             return $response->withHeader('Content-Type', 'application/json');
         }
 
-        $results = $this->metadata->searchExternal($mediaType, $query);
+        $results = $this->metadata->searchExternal($mediaType, $query, $author);
 
         $response->getBody()->write(json_encode($results));
         return $response->withHeader('Content-Type', 'application/json');

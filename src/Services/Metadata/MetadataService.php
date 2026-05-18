@@ -14,6 +14,7 @@ class MetadataService
         private readonly TmdbProvider $tmdb,
         private readonly MusicBrainzProvider $musicBrainz,
         private readonly OpenLibraryProvider $openLibrary,
+        private readonly AudnexusProvider $audnexus,
         private readonly ClientInterface $http,
         private readonly string $coversDir
     ) {}
@@ -21,13 +22,14 @@ class MetadataService
     // ── Public API ────────────────────────────────────────────────────────
 
     /** Return up to 6 search results from the appropriate external provider. */
-    public function searchExternal(string $type, string $query): array
+    public function searchExternal(string $type, string $query, ?string $author = null): array
     {
         return match ($type) {
             'movies'              => $this->tmdb->searchMovieMulti($query),
             'shows'               => $this->tmdb->searchShowMulti($query),
             'music'               => $this->musicBrainz->searchReleaseMulti($query),
-            'books', 'audiobooks' => $this->openLibrary->searchMulti($query),
+            'audiobooks'          => $this->audnexusOrOpenLibraryMulti($query, $author),
+            'books'               => $this->openLibrary->searchMulti($query, $author),
             default               => [],
         };
     }
@@ -44,6 +46,7 @@ class MetadataService
                 'shows'  => $this->tmdb->fetchShowById((int) $externalId),
                 default  => null,
             },
+            'audnexus'    => $this->audnexus->fetchByAsin($externalId),
             'openlibrary' => $this->openLibrary->fetchByKey($externalId),
             'musicbrainz' => $this->musicBrainz->fetchRelease($externalId),
             default       => null,
@@ -56,6 +59,8 @@ class MetadataService
             if ($meta['external_id'] ?? null) {
                 $this->enrichShowSeasons($item['show_name'], (int) $meta['external_id']);
             }
+        } elseif ($item['type'] === 'audiobooks' && $item['book_name']) {
+            $this->applyToBook($item['book_name'], $meta, true);
         } elseif ($item['type'] === 'music') {
             $this->applyToAlbum($item['author'], $item['series'], $meta, true);
         } else {
@@ -70,6 +75,7 @@ class MetadataService
         $this->enrichShows($onProgress);
         $this->enrichMusic($onProgress);
         $this->enrichBooks($onProgress);
+        $this->enrichAudiobooks($onProgress);
     }
 
     /** Enrich all items of a specific type that haven't been fetched yet. */
@@ -80,9 +86,23 @@ class MetadataService
             'shows'      => $this->enrichShows($onProgress),
             'music'      => $this->enrichMusic($onProgress),
             'books'      => $this->enrichBooksOfType('books', $onProgress),
-            'audiobooks' => $this->enrichBooksOfType('audiobooks', $onProgress),
+            'audiobooks' => $this->enrichAudiobooks($onProgress),
             default      => null,
         };
+    }
+
+    /** Refresh series metadata (clears then re-enriches from OpenLibrary). */
+    public function refreshSeriesMeta(string $series, string $author): void
+    {
+        $this->db->execute(
+            'INSERT OR IGNORE INTO series_meta (series, author) VALUES (?, ?)',
+            [$series, $author]
+        );
+        $this->db->execute(
+            'UPDATE series_meta SET metadata_fetched_at = NULL WHERE series = ? AND author = ?',
+            [$series, $author]
+        );
+        $this->enrichSeries($series, $author);
     }
 
     /** Enrich a single item by ID. Used by the manual refresh button. */
@@ -96,13 +116,24 @@ class MetadataService
         $item['metadata_fetched_at'] = null;
 
         match ($item['type']) {
-            'movies'                        => $this->enrichMovie($item),
-            'shows'                         => $this->enrichShow($item['show_name']),
-            'music'                         => $this->enrichAlbum($item['author'], $item['series']),
-            'books', 'audiobooks',
-            'cookbooks'                     => $this->enrichBook($item),
-            default                         => null,
+            'movies'    => $this->enrichMovie($item),
+            'shows'     => $this->enrichShow($item['show_name']),
+            'music'     => $this->enrichAlbum($item['author'], $item['series']),
+            'audiobooks' => $this->enrichAudiobook(
+                $item['book_name'],
+                $item['author'],
+                $this->cleanAudiobookTitle($item['book_name'], $item['path'], $item['author'])
+            ),
+            'books', 'cookbooks' => $this->enrichBook($item),
+            default     => null,
         };
+    }
+
+    /** For the Edit-modal search: ASIN query goes to Audnexus, text query goes to OpenLibrary. */
+    private function audnexusOrOpenLibraryMulti(string $query, ?string $author): array
+    {
+        $audnexusResults = $this->audnexus->searchMulti($query, $author);
+        return $audnexusResults ?: $this->openLibrary->searchMulti($query, $author);
     }
 
     // ── Per-type batch enrichment ─────────────────────────────────────────
@@ -113,7 +144,7 @@ class MetadataService
             'SELECT * FROM media WHERE type = "movies" AND metadata_fetched_at IS NULL'
         );
         foreach ($items as $item) {
-            if ($onProgress) $onProgress('movies', $item['id']);
+            if ($onProgress) $onProgress('movies', $item['id'], $item['title'] ?? $item['filename'] ?? '');
             $this->enrichMovie($item);
             usleep(150_000); // stay well under TMDB rate limit
         }
@@ -131,7 +162,7 @@ class MetadataService
                )'
         );
         foreach ($newShows as $row) {
-            if ($onProgress) $onProgress('shows', $row['show_name']);
+            if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
             $this->enrichShow($row['show_name']); // includes enrichShowSeasons()
             usleep(150_000);
         }
@@ -144,7 +175,7 @@ class MetadataService
              GROUP BY show_name'
         );
         foreach ($needsSeasons as $row) {
-            if ($onProgress) $onProgress('shows', $row['show_name']);
+            if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
             $this->enrichShowSeasons($row['show_name'], (int) $row['tmdb_id']);
         }
     }
@@ -156,7 +187,7 @@ class MetadataService
              WHERE type = "music" AND author IS NOT NULL AND metadata_fetched_at IS NULL'
         );
         foreach ($albums as $album) {
-            if ($onProgress) $onProgress('music', $album['author']);
+            if ($onProgress) $onProgress('music', $album['author'], $album['author']);
             $this->enrichAlbum($album['author'], $album['series']);
             sleep(1); // MusicBrainz: 1 req/second
         }
@@ -164,7 +195,7 @@ class MetadataService
 
     private function enrichBooks(?callable $onProgress): void
     {
-        $this->enrichBooksOfType(null, $onProgress);
+        $this->enrichBooksOfType('books', $onProgress);
     }
 
     private function enrichBooksOfType(?string $type, ?callable $onProgress): void
@@ -175,11 +206,47 @@ class MetadataService
                 [$type]
               )
             : $this->db->query(
-                'SELECT * FROM media WHERE type IN ("books", "audiobooks") AND metadata_fetched_at IS NULL'
+                'SELECT * FROM media WHERE type = "books" AND metadata_fetched_at IS NULL'
               );
         foreach ($items as $item) {
-            if ($onProgress) $onProgress($item['type'], $item['id']);
+            if ($onProgress) $onProgress($item['type'], $item['id'], $item['title'] ?? $item['filename'] ?? '');
             $this->enrichBook($item);
+            usleep(250_000);
+        }
+    }
+
+    private function enrichAudiobooks(?callable $onProgress): void
+    {
+        // Group by book so we do one lookup per book, not one per chapter file.
+        // Include a sample path so we can extract the clean directory-based title.
+        $books = $this->db->query(
+            'SELECT book_name, author, series, MIN(path) as sample_path FROM media
+             WHERE type = "audiobooks" AND book_name IS NOT NULL AND metadata_fetched_at IS NULL
+             GROUP BY book_name, author'
+        );
+        foreach ($books as $book) {
+            $cleanTitle = $this->cleanAudiobookTitle($book['book_name'], $book['sample_path'], $book['author']);
+            // Use series name as group key so the series row on the browse page gets
+            // highlighted; fall back to raw book_name for standalone books.
+            $groupKey = $book['series'] ?? $book['book_name'];
+            if ($onProgress) $onProgress('audiobooks', $groupKey, $cleanTitle);
+            $this->enrichAudiobook($book['book_name'], $book['author'], $cleanTitle);
+            usleep(250_000);
+        }
+
+        // After all books are enriched, enrich any series that have no series_meta yet.
+        $seriesList = $this->db->query(
+            'SELECT DISTINCT series, author FROM media
+             WHERE type = "audiobooks" AND series IS NOT NULL AND book_name IS NOT NULL'
+        );
+        foreach ($seriesList as $row) {
+            $existing = $this->db->first(
+                'SELECT metadata_fetched_at FROM series_meta WHERE series = ? AND (author = ? OR author IS NULL)',
+                [$row['series'], $row['author']]
+            );
+            if ($existing && $existing['metadata_fetched_at']) continue;
+            if ($onProgress) $onProgress('audiobooks', $row['series'], $row['series']);
+            $this->enrichSeries($row['series'], $row['author']);
             usleep(250_000);
         }
     }
@@ -284,8 +351,20 @@ class MetadataService
 
     private function enrichBook(array $item): void
     {
-        $meta = $this->openLibrary->search($item['title'] ?? $item['filename'], $item['author']);
+        $raw   = $item['title'] ?? $item['filename'];
+        $title = $this->cleanBookSearchTitle($raw, $item['author'] ?? null);
+        $meta  = $this->openLibrary->search($title, $item['author']);
         $this->applyToSingle($item['id'], $meta);
+    }
+
+    private function enrichAudiobook(?string $bookName, ?string $author, ?string $cleanTitle = null): void
+    {
+        if (!$bookName) return;
+        $title = $cleanTitle ?? $bookName;
+        // Prefer Audnexus when the title/filename contains an ASIN; otherwise use OpenLibrary.
+        $meta = $this->audnexus->search($title, $author)
+            ?? $this->openLibrary->search($title, $author);
+        $this->applyToBook($bookName, $meta);
     }
 
     // ── DB update helpers ─────────────────────────────────────────────────
@@ -303,6 +382,7 @@ class MetadataService
                 external_id         = ' . $w('external_id', ':external_id') . ',
                 external_source     = ' . $w('external_source', ':external_source') . ',
                 year                = ' . $w('year', ':year') . ',
+                series_order        = COALESCE(:series_order, series_order),
                 metadata            = :metadata,
                 metadata_fetched_at = CURRENT_TIMESTAMP
              WHERE id = :id',
@@ -313,6 +393,7 @@ class MetadataService
                 'external_id'     => $meta['external_id'] ?? null,
                 'external_source' => $meta['external_source'] ?? null,
                 'year'            => $meta['year'] ?? null,
+                'series_order'    => $meta['series_order'] ?? null,
                 'metadata'        => json_encode($meta['metadata'] ?? []),
                 'id'              => $id,
             ]
@@ -348,6 +429,53 @@ class MetadataService
         );
     }
 
+    private function applyToBook(string $bookName, ?array $meta, bool $overwrite = false): void
+    {
+        $poster = ($meta['poster_url'] ?? null) ? $this->downloadCover($meta['poster_url'], 'book_' . md5($bookName), $overwrite) : null;
+        $w = fn(string $col, string $param) => $overwrite ? $param : "COALESCE($param, $col)";
+
+        // Shared metadata applies to every file in the book (description, poster, etc.)
+        $this->db->execute(
+            'UPDATE media SET
+                description         = ' . $w('description', ':description') . ',
+                poster              = COALESCE(:poster, poster),
+                external_id         = ' . $w('external_id', ':external_id') . ',
+                external_source     = ' . $w('external_source', ':external_source') . ',
+                year                = ' . $w('year', ':year') . ',
+                series_order        = COALESCE(:series_order, series_order),
+                metadata            = :metadata,
+                metadata_fetched_at = CURRENT_TIMESTAMP
+             WHERE type = "audiobooks" AND book_name = :book_name',
+            [
+                'description'     => $meta['description'] ?? null,
+                'poster'          => $poster,
+                'external_id'     => $meta['external_id'] ?? null,
+                'external_source' => $meta['external_source'] ?? null,
+                'year'            => $meta['year'] ?? null,
+                'series_order'    => $meta['series_order'] ?? null,
+                'metadata'        => json_encode($meta['metadata'] ?? []),
+                'book_name'       => $bookName,
+            ]
+        );
+
+        // Title only makes sense at the whole-book level, not for individual chapters.
+        // Only overwrite it when there is exactly one file for this book_name (single-file
+        // audiobook like an M4B), so chapter file titles (track names / "Chapter N") are
+        // preserved.
+        $fileCount = (int) ($this->db->first(
+            'SELECT COUNT(*) as n FROM media WHERE type = "audiobooks" AND book_name = ?',
+            [$bookName]
+        )['n'] ?? 0);
+
+        if ($overwrite || $fileCount <= 1) {
+            $this->db->execute(
+                'UPDATE media SET title = ' . $w('title', ':title') . '
+                 WHERE type = "audiobooks" AND book_name = :book_name',
+                ['title' => $meta['title'] ?? null, 'book_name' => $bookName]
+            );
+        }
+    }
+
     private function applyToAlbum(?string $artist, ?string $album, ?array $meta, bool $overwrite = false): void
     {
         $key    = 'album_' . md5(($artist ?? '') . ':' . ($album ?? ''));
@@ -373,6 +501,142 @@ class MetadataService
                 'album'           => $album,
             ]
         );
+    }
+
+    private function enrichSeries(string $series, string $author): void
+    {
+        // Use OpenLibrary for series-level metadata (title, description, year, poster)
+        $meta = $this->openLibrary->search($series, $author);
+
+        // Look for an author ASIN from any Audnexus-enriched book in this series,
+        // then fetch the author photo from Audnexus.
+        $authorAsin  = null;
+        $authorImage = null;
+        $bookRow     = $this->db->first(
+            "SELECT metadata FROM media WHERE type = 'audiobooks' AND series = ? AND external_source = 'audnexus' LIMIT 1",
+            [$series]
+        );
+        if ($bookRow) {
+            $bm         = json_decode($bookRow['metadata'] ?? '{}', true);
+            $authorAsin = $bm['author_asin'] ?? null;
+        }
+        if ($authorAsin) {
+            $authorData = $this->audnexus->fetchAuthor($authorAsin);
+            if ($authorData && ($authorData['image_url'] ?? null)) {
+                $authorImage = $this->downloadCover($authorData['image_url'], 'author_' . $authorAsin);
+            }
+        }
+
+        $this->applyToSeries($series, $author, $meta, false, $authorAsin, $authorImage);
+    }
+
+    private function applyToSeries(
+        string  $series,
+        string  $author,
+        ?array  $meta,
+        bool    $overwrite = false,
+        ?string $authorAsin = null,
+        ?string $authorImage = null
+    ): void {
+        $poster = ($meta['poster_url'] ?? null)
+            ? $this->downloadCover($meta['poster_url'], 'series_' . md5($series . ':' . $author), $overwrite)
+            : null;
+        $w = fn(string $col, string $param) => $overwrite ? $param : "COALESCE($param, $col)";
+
+        $this->db->execute(
+            'INSERT OR IGNORE INTO series_meta (series, author) VALUES (?, ?)',
+            [$series, $author]
+        );
+        $this->db->execute(
+            'UPDATE series_meta SET
+                title               = ' . $w('title', ':title') . ',
+                description         = ' . $w('description', ':description') . ',
+                poster              = COALESCE(:poster, poster),
+                author_image        = COALESCE(:author_image, author_image),
+                author_asin         = COALESCE(:author_asin, author_asin),
+                year                = ' . $w('year', ':year') . ',
+                external_id         = ' . $w('external_id', ':external_id') . ',
+                external_source     = ' . $w('external_source', ':external_source') . ',
+                metadata            = :metadata,
+                metadata_fetched_at = CURRENT_TIMESTAMP
+             WHERE series = :series AND author = :author',
+            [
+                'title'           => $meta['title'] ?? $series,
+                'description'     => $meta['description'] ?? null,
+                'poster'          => $poster,
+                'author_image'    => $authorImage,
+                'author_asin'     => $authorAsin,
+                'year'            => $meta['year'] ?? null,
+                'external_id'     => $meta['external_id'] ?? null,
+                'external_source' => $meta['external_source'] ?? null,
+                'metadata'        => json_encode($meta['metadata'] ?? []),
+                'series'          => $series,
+                'author'          => $author,
+            ]
+        );
+    }
+
+    // ── Title extraction helpers ──────────────────────────────────────────
+
+    /**
+     * For audiobooks the clean title is the parent directory name, not the raw
+     * book_name (which is often an M4B filename with Audible IDs and series suffixes).
+     *
+     * Structure: Author/[Series/]BookDir/Book.m4b  → BookDir is the clean title.
+     * For chapter-file books: Author/[Series/]BookDir/ch01.mp3 → BookDir is book_name already.
+     */
+    private function cleanAudiobookTitle(string $bookName, ?string $path, ?string $author = null): string
+    {
+        if ($path) {
+            $ext = strtolower(pathinfo($path, PATHINFO_EXTENSION));
+            // M4B files are self-contained books placed directly in Author/[Series]/ —
+            // there is no intermediate "book directory", so parentDir is the Author or
+            // Series folder, not a meaningful book title. Fall through to filename-based cleaning.
+            if ($ext !== 'm4b') {
+                $parentDir = basename(dirname($path));
+                // Parent dir is the book directory when it's neither a root segment nor the book_name itself.
+                if ($parentDir && $parentDir !== $bookName && !in_array(strtolower($parentDir), ['audiobooks', '.', '..'], true)) {
+                    return $parentDir;
+                }
+            }
+        }
+
+        // Fallback: strip common Audible/ISBN suffixes and appended series info from the filename.
+        $clean = preg_replace('/\s*\[B[A-Z0-9]{9,10}\]/i', '', $bookName);   // [BASIN12345]
+        $clean = preg_replace('/\s*\[\d{9,13}\]/', '', $clean);               // [ISBN]
+        $clean = preg_replace('/[_:]\s*.{0,60}(,\s*Book\s*[\d.]+)?$/i', '', $clean); // _ Series info, Book N
+
+        if ($author) {
+            $escapedAuthor = preg_quote($author, '/');
+            // Strip leading "Author Name - Title" or "Author Name: Title" prefix
+            $clean = preg_replace('/^' . $escapedAuthor . '\s*[-–:]\s*/iu', '', $clean);
+            // Strip trailing "Title - Author Name" or "Title (Author Name)" suffix
+            $clean = preg_replace('/\s*[-–]\s*' . $escapedAuthor . '\s*$/iu', '', $clean);
+            $clean = preg_replace('/\s*\(' . $escapedAuthor . '\)\s*$/iu', '', $clean);
+        }
+
+        $clean = trim($clean);
+        return $clean !== '' ? $clean : $bookName;
+    }
+
+    private function cleanBookSearchTitle(string $title, ?string $author = null): string
+    {
+        // Replace underscores/dots used as word separators
+        $clean = str_replace(['_', '.'], ' ', $title);
+
+        if ($author) {
+            $ea = preg_quote($author, '/');
+            $clean = preg_replace('/^' . $ea . '\s*[-–:]\s*/iu', '', $clean);
+            $clean = preg_replace('/\s*[-–]\s*' . $ea . '\s*$/iu', '', $clean);
+            $clean = preg_replace('/\s*\(' . $ea . '\)\s*$/iu', '', $clean);
+        } else {
+            // Fallback heuristic when author isn't known
+            $clean = preg_replace('/\s+[-–]\s+[A-Z][a-zA-Z ]+$/', '', $clean);
+        }
+
+        // Strip edition markers like "(2nd ed)" or "[Revised]"
+        $clean = preg_replace('/\s*[\(\[](revised|updated|edition|\d+(st|nd|rd|th)\s*ed)[^\)\]]*[\)\]]/i', '', $clean);
+        return trim(preg_replace('/\s{2,}/', ' ', $clean));
     }
 
     // ── Image download ────────────────────────────────────────────────────

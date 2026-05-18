@@ -29,20 +29,54 @@
     {# Shows grouped by show_name / Music grouped by artist #}
     <div class="item-list">
         {% for item in items %}
-            {% set name = item.show_name ?? item.author ?? '(Unknown)' %}
-            {% set count = item.episode_count ?? item.track_count ?? 0 %}
+            {% set name  = item.name ?? item.book_name ?? item.show_name ?? item.author ?? '(Unknown)' %}
+            {% set count = item.file_count ?? item.episode_count ?? item.track_count ?? 0 %}
             {% set thumb = item.poster ?? null %}
+            {% set href  = item.url_path is defined ? '/library/' ~ type ~ '/' ~ item.url_path : '/library/' ~ type ~ '/' ~ (name|url_encode) %}
+            {% if type == 'shows' %}
+                {% set metaLabel = count ~ ' episode' ~ (count != 1 ? 's' : '') %}
+            {% elseif type == 'audiobooks' %}
+                {% if item.item_type == 'series' %}
+                    {% set bc = item.book_count ?? 0 %}
+                    {% set metaLabel = bc ~ ' book' ~ (bc != 1 ? 's' : '') ~ (item.author ? ' · ' ~ item.author : '') %}
+                {% else %}
+                    {% set secs = item.total_duration %}
+                    {% if secs %}
+                        {% set h = (secs / 3600)|round(0, 'floor') %}
+                        {% set m = ((secs % 3600) / 60)|round(0, 'floor') %}
+                        {% if h > 0 %}
+                            {% set durLabel = h ~ 'h ' ~ m ~ 'm' %}
+                        {% else %}
+                            {% set durLabel = m ~ 'm' %}
+                        {% endif %}
+                        {% set metaLabel = durLabel ~ (item.author ? ' · ' ~ item.author : '') %}
+                    {% elseif item.ext == 'm4b' %}
+                        {% set metaLabel = 'Audiobook' ~ (item.author ? ' · ' ~ item.author : '') %}
+                    {% else %}
+                        {% set metaLabel = count ~ ' chapter' ~ (count != 1 ? 's' : '') ~ (item.author ? ' · ' ~ item.author : '') %}
+                    {% endif %}
+                {% endif %}
+            {% else %}
+                {% set metaLabel = count ~ ' track' ~ (count != 1 ? 's' : '') %}
+            {% endif %}
+            {% set isSeries = type == 'audiobooks' and item.item_type == 'series' %}
+            {% set needsMeta = item.pending_meta is defined and item.pending_meta > 0 %}
             <div class="item-row-wrap">
-                <a href="/library/{{ type }}/{{ name|url_encode }}" class="item-row" data-group-name="{{ name }}">
+                <a href="{{ href }}" class="item-row{% if isSeries %} item-row--series{% endif %}{% if needsMeta %} meta-pending{% endif %}" data-group-name="{{ name }}">
                     {% if thumb %}
                         <img src="{{ thumb }}" class="item-thumb" alt="">
                     {% else %}
-                        <span class="item-icon">{{ typeIcon[type] }}</span>
+                        <span class="item-icon">{{ isSeries ? '📚' : typeIcon[type] }}</span>
                     {% endif %}
                     <span class="item-name">{{ name }}</span>
-                    <span class="item-meta">{{ count }} {{ type == 'shows' ? 'episode' : 'track' }}{{ count != 1 ? 's' : '' }}</span>
+                    <span class="item-meta">{{ metaLabel }}</span>
                 </a>
-                <button class="item-menu-btn" data-type="{{ type }}" data-group="{{ name }}" data-label="{{ name }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+                <button class="item-menu-btn"
+                    data-type="{{ type }}"
+                    data-group="{{ name }}"
+                    {% if isSeries %}data-col="series"{% endif %}
+                    data-label="{{ name }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
             </div>
         {% else %}
             <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
@@ -53,7 +87,7 @@
     <div class="item-list">
         {% for item in items %}
             <div class="item-row-wrap">
-                <a href="/library/{{ type }}/{{ item.relative_path }}" class="item-row" data-media-id="{{ item.id }}">
+                <a href="/library/{{ type }}/{{ item.relative_path }}" class="item-row{% if not item.metadata_fetched_at %} meta-pending{% endif %}" data-media-id="{{ item.id }}">
                     {% if item.poster %}
                         <img src="{{ item.poster }}" class="item-thumb" alt="">
                     {% else %}

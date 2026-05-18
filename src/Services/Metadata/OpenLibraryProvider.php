@@ -18,7 +18,8 @@ class OpenLibraryProvider
     {
         try {
             $limit  = $author ? 12 : 6;
-            $params = ['title' => $title, 'limit' => $limit, 'fields' => 'key,title,author_name,first_publish_year,cover_i'];
+            $params = ['title' => $title, 'limit' => $limit, 'fields' => 'key,title,author_name,first_publish_year,cover_i,series'];
+            if ($author) $params['author'] = $author;
             $res    = $this->http->get(self::SEARCH, ['query' => $params]);
             $data   = json_decode($res->getBody()->getContents(), true);
             $docs   = $data['docs'] ?? [];
@@ -54,35 +55,63 @@ class OpenLibraryProvider
             $res  = $this->http->get('https://openlibrary.org' . $path . '.json');
             $d    = json_decode($res->getBody()->getContents(), true);
 
-            $coverId = null;
+            $coverId     = null;
+            $seriesOrder = null;
+            $year        = null;
             try {
-                $eRes    = $this->http->get(self::SEARCH, ['query' => ['q' => 'key:' . $path, 'fields' => 'cover_i', 'limit' => 1]]);
+                $eRes    = $this->http->get(self::SEARCH, ['query' => ['q' => 'key:' . $path, 'fields' => 'cover_i,series,first_publish_year,author_name', 'limit' => 1]]);
                 $eData   = json_decode($eRes->getBody()->getContents(), true);
-                $coverId = $eData['docs'][0]['cover_i'] ?? null;
+                $coverId     = $eData['docs'][0]['cover_i'] ?? null;
+                $seriesOrder = $this->parseSeriesOrder($eData['docs'][0]['series'] ?? []);
+                $year        = $eData['docs'][0]['first_publish_year'] ?? null;
             } catch (GuzzleException) {}
+
+            // Extract subjects as genres — filter to reasonable length
+            $subjects = array_values(array_filter(
+                array_map(fn($s) => is_string($s) ? $s : ($s['name'] ?? null), $d['subjects'] ?? []),
+                fn($s) => $s !== null && strlen($s) < 40
+            ));
+
+            $description = is_string($d['description'] ?? null)
+                ? $d['description']
+                : ($d['description']['value'] ?? null);
 
             return [
                 'external_id'     => ltrim($path, '/works/'),
                 'external_source' => 'openlibrary',
                 'title'           => $d['title'] ?? null,
-                'description'     => is_string($d['description'] ?? null)
-                                        ? $d['description']
-                                        : ($d['description']['value'] ?? null),
-                'year'            => null,
+                'description'     => $description,
+                'year'            => $year,
                 'rating'          => null,
                 'poster_url'      => $coverId ? self::COVER . "/$coverId-L.jpg" : null,
-                'metadata'        => [],
+                'series_order'    => $seriesOrder,
+                'metadata'        => ['genres' => array_slice($subjects, 0, 8)],
             ];
         } catch (GuzzleException) {
             return null;
         }
     }
 
+    /**
+     * Extract a numeric series position from OpenLibrary series strings.
+     * Handles: "Series Name #7", "Series Name, 7", "Series, Book 7.5", etc.
+     */
+    private function parseSeriesOrder(array $seriesList): ?float
+    {
+        foreach ($seriesList as $s) {
+            if (preg_match('/#\s*([\d]+(?:\.[\d]+)?)/', $s, $m))              return (float) $m[1];
+            if (preg_match('/\bBook\s+([\d]+(?:\.[\d]+)?)\b/i', $s, $m))     return (float) $m[1];
+            if (preg_match('/,\s*([\d]+(?:\.[\d]+)?)\s*$/', $s, $m))         return (float) $m[1];
+        }
+        return null;
+    }
+
     public function search(string $title, ?string $author = null): ?array
     {
         try {
             $limit  = $author ? 10 : 5;
-            $params = ['title' => $title, 'limit' => $limit, 'fields' => 'key,title,author_name,first_publish_year,subject,description,cover_i'];
+            $params = ['title' => $title, 'limit' => $limit, 'fields' => 'key,title,author_name,first_publish_year,subject,description,cover_i,series'];
+            if ($author) $params['author'] = $author;
 
             $res  = $this->http->get(self::SEARCH, ['query' => $params]);
             $data = json_decode($res->getBody()->getContents(), true);
@@ -117,6 +146,7 @@ class OpenLibraryProvider
                 'year'            => $hit['first_publish_year'] ?? null,
                 'rating'          => null,
                 'poster_url'      => $coverId ? self::COVER . "/$coverId-L.jpg" : null,
+                'series_order'    => $this->parseSeriesOrder($hit['series'] ?? []),
                 'metadata'        => [
                     'author'   => $hit['author_name'][0] ?? $author,
                     'subjects' => array_slice($hit['subject'] ?? [], 0, 5),

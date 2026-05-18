@@ -88,10 +88,6 @@
                     </a>
                 {% endif %}
 
-                <form method="post" action="/metadata/refresh/{{ item.id }}">
-                    <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
-                </form>
-
                 <button class="btn-refresh" data-id="{{ item.id }}" data-type="{{ type }}" data-label="{{ (item.title ?? item.filename)|e }}" onclick="openItemMenu(event,this)" title="Options">···</button>
             </div>
         </div>

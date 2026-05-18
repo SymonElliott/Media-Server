@@ -42,18 +42,19 @@ file_put_contents($stateFile, json_encode([
 ]), LOCK_EX);
 
 $done     = 0;
-$callback = function (string $t, int|string $itemKey) use ($stateFile, $total, &$done) {
+$callback = function (string $t, int|string $itemKey, ?string $itemName = null) use ($stateFile, $total, &$done) {
     file_put_contents($stateFile, json_encode([
-        'running'         => true,
-        'phase'           => 'metadata',
-        'current_type'    => $t,
-        'current_item_id' => is_int($itemKey) ? $itemKey : null,
-        'current_group'   => is_string($itemKey) ? $itemKey : null,
-        'total'           => $total,
-        'processed'       => $done,
-        'added'           => 0,
-        'updated'         => 0,
-        'skipped'         => 0,
+        'running'           => true,
+        'phase'             => 'metadata',
+        'current_type'      => $t,
+        'current_item_id'   => is_int($itemKey) ? $itemKey : null,
+        'current_group'     => is_string($itemKey) ? $itemKey : null,
+        'current_item_name' => $itemName,
+        'total'             => $total,
+        'processed'         => $done,
+        'added'             => 0,
+        'updated'           => 0,
+        'skipped'           => 0,
     ]), LOCK_EX);
     $done++;
 };
@@ -65,12 +66,13 @@ if ($type) {
 }
 
 file_put_contents($stateFile, json_encode([
-    'running'         => false,
-    'current_type'    => null,
-    'current_item_id' => null,
-    'current_group'   => null,
-    'finished_at'     => date('c'),
-    'added'           => 0,
-    'updated'         => 0,
-    'skipped'         => 0,
+    'running'           => false,
+    'current_type'      => null,
+    'current_item_id'   => null,
+    'current_group'     => null,
+    'current_item_name' => null,
+    'finished_at'       => date('c'),
+    'added'             => 0,
+    'updated'           => 0,
+    'skipped'           => 0,
 ]), LOCK_EX);

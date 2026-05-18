@@ -53,6 +53,23 @@ class Connection
     private function migrate(): void
     {
         $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS series_meta (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                series              TEXT NOT NULL,
+                author              TEXT,
+                title               TEXT,
+                description         TEXT,
+                poster              TEXT,
+                author_image        TEXT,
+                author_asin         TEXT,
+                year                INTEGER,
+                external_id         TEXT,
+                external_source     TEXT,
+                metadata            TEXT DEFAULT '{}',
+                metadata_fetched_at DATETIME,
+                UNIQUE(series, author)
+            );
+
             CREATE TABLE IF NOT EXISTS media (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 type                TEXT NOT NULL,
@@ -81,7 +98,7 @@ class Connection
             CREATE INDEX IF NOT EXISTS idx_media_author ON media(author);
         SQL);
 
-        // Add columns that existing DBs won't have yet
+        // Add columns that existing DBs won't have yet (must run before index creation below)
         $existing = array_column(
             $this->pdo->query('PRAGMA table_info(media)')->fetchAll(),
             'name'
@@ -93,10 +110,32 @@ class Connection
             'external_id'         => 'TEXT',
             'external_source'     => 'TEXT',
             'metadata_fetched_at' => 'DATETIME',
+            'book_name'           => 'TEXT',
+            'duration'            => 'INTEGER',
+            'series_order'        => 'REAL',
         ] as $col => $type) {
             if (!in_array($col, $existing, true)) {
                 $this->pdo->exec("ALTER TABLE media ADD COLUMN $col $type");
             }
         }
+
+        // Add columns that existing series_meta tables won't have yet
+        $existingSm = array_column(
+            $this->pdo->query('PRAGMA table_info(series_meta)')->fetchAll(),
+            'name'
+        );
+        foreach (['author_image' => 'TEXT', 'author_asin' => 'TEXT'] as $col => $type) {
+            if (!in_array($col, $existingSm, true)) {
+                $this->pdo->exec("ALTER TABLE series_meta ADD COLUMN $col $type");
+            }
+        }
+
+        // Indexes on columns that may have been added above
+        $this->pdo->exec(
+            'CREATE INDEX IF NOT EXISTS idx_media_book ON media(book_name)'
+        );
+        $this->pdo->exec(
+            'CREATE INDEX IF NOT EXISTS idx_series_meta ON series_meta(series, author)'
+        );
     }
 }

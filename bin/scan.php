@@ -14,6 +14,9 @@ $stateFile   = $root . '/storage/scan.json';
 $libraryPath = $_ENV['LIBRARY_PATH'] ?? '/library';
 $coversDir   = $root . '/public/covers';
 
+$validTypes = ['movies', 'shows', 'music', 'audiobooks', 'books'];
+$filterType = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
+
 $db        = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $http      = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
 $scanner   = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
@@ -27,7 +30,7 @@ $metadata  = new App\Services\Metadata\MetadataService(
 );
 
 // Pre-count files per type so the UI can show per-tile progress bars
-$typeTotals = $scanner->countFiles();   // also caches in $scanner for writeState()
+$typeTotals = $scanner->countFiles($filterType);   // also caches in $scanner for writeState()
 $fileTotal  = array_sum($typeTotals);
 
 file_put_contents($stateFile, json_encode([
@@ -43,12 +46,16 @@ file_put_contents($stateFile, json_encode([
 ]), LOCK_EX);
 
 // Phase 1: index files
-$stats = $scanner->scan();
+$stats = $scanner->scan($filterType);
 
 // Count items that still need metadata enrichment for phase-2 progress
-$metaTotal = (int) ($db->first(
-    'SELECT COUNT(*) as n FROM media WHERE metadata_fetched_at IS NULL'
-)['n'] ?? 0);
+$metaQuery  = 'SELECT COUNT(*) as n FROM media WHERE metadata_fetched_at IS NULL';
+$metaParams = [];
+if ($filterType) {
+    $metaQuery  .= ' AND type = ?';
+    $metaParams[] = $filterType;
+}
+$metaTotal = (int) ($db->first($metaQuery, $metaParams)['n'] ?? 0);
 
 file_put_contents($stateFile, json_encode([
     'running'      => true,
@@ -60,20 +67,27 @@ file_put_contents($stateFile, json_encode([
 ]), LOCK_EX);
 
 // Phase 2: enrich metadata
-$done = 0;
-$metadata->enrichAll(function (string $type, int|string $itemKey) use ($stateFile, $stats, $metaTotal, &$done) {
+$done     = 0;
+$progress = function (string $type, int|string $itemKey, ?string $itemName = null) use ($stateFile, $stats, $metaTotal, &$done) {
     file_put_contents($stateFile, json_encode([
-        'running'          => true,
-        'phase'            => 'metadata',
-        'current_type'     => $type,
-        'current_item_id'  => is_int($itemKey) ? $itemKey : null,
-        'current_group'    => is_string($itemKey) ? $itemKey : null,
-        'total'            => $metaTotal,
-        'processed'        => $done,
+        'running'           => true,
+        'phase'             => 'metadata',
+        'current_type'      => $type,
+        'current_item_id'   => is_int($itemKey) ? $itemKey : null,
+        'current_group'     => is_string($itemKey) ? $itemKey : null,
+        'current_item_name' => $itemName,
+        'total'             => $metaTotal,
+        'processed'         => $done,
         ...$stats,
     ]), LOCK_EX);
     $done++;
-});
+};
+
+if ($filterType) {
+    $metadata->enrichType($filterType, $progress);
+} else {
+    $metadata->enrichAll($progress);
+}
 
 file_put_contents($stateFile, json_encode([
     'running'         => false,

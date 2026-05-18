@@ -444,6 +444,49 @@
             animation: shimmer 1.4s linear infinite;
         }
 
+        /* ── Scan progress bar ── */
+        #scan-progress {
+            position: fixed;
+            top: 56px; left: 0; right: 0;
+            height: 4px;
+            z-index: 99;
+            background: transparent;
+            display: none;
+            pointer-events: none;
+        }
+        #scan-progress-fill {
+            height: 100%;
+            width: 0%;
+            background: var(--accent);
+            transition: width 0.7s ease;
+            border-radius: 0 2px 2px 0;
+        }
+        #scan-progress.indeterminate #scan-progress-fill {
+            width: 100% !important;
+            background: linear-gradient(90deg, var(--bg) 0%, var(--accent) 30%, var(--accent-h) 70%, var(--bg) 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.4s linear infinite;
+            transition: none;
+            border-radius: 0;
+        }
+
+        /* ── Scan item name label ── */
+        #scan-item-label {
+            position: fixed;
+            top: 60px; left: 0; right: 0;
+            font-size: 0.7rem;
+            color: rgba(224, 224, 224, 0.55);
+            padding: 3px 12px;
+            display: none;
+            pointer-events: none;
+            z-index: 98;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            background: rgba(13, 13, 13, 0.82);
+            letter-spacing: 0.15px;
+        }
+
         /* ── Ellipsis menu button ── */
         .item-menu-btn {
             background: none; border: none; color: var(--muted); cursor: pointer;
@@ -530,7 +573,12 @@
         .btn-change-match:hover { border-color: var(--accent); color: var(--accent); }
         .search-panel { margin-top: 1rem; }
         .search-input-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
-        .search-input-row input { flex: 1; }
+        .search-input-row input, #search-author {
+            flex: 1; background: var(--surface2); border: 1px solid var(--border);
+            border-radius: 5px; color: var(--text); padding: 0.5rem 0.75rem;
+            font-family: inherit; font-size: 0.9rem; width: 100%;
+        }
+        .search-input-row input:focus, #search-author:focus { outline: none; border-color: var(--accent); }
         .search-results { display: flex; flex-direction: column; gap: 0.4rem; max-height: 280px; overflow-y: auto; }
         .search-result-card {
             display: flex; gap: 0.75rem; align-items: center;
@@ -549,21 +597,40 @@
         .result-meta  { font-size: 0.78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .search-empty { font-size: 0.85rem; color: var(--muted); text-align: center; padding: 1rem; }
 
-        /* ── Item scan spinners ── */
-        @keyframes item-spin { to { transform: rotate(360deg); } }
-        .item-row.item-scanning { border-color: var(--accent); }
+        /* ── Item scan progress bar ── */
+        @keyframes scan-sweep {
+            0%   { transform: translateX(-200%); }
+            100% { transform: translateX(400%); }
+        }
+        .item-row.item-scanning {
+            border-color: var(--accent);
+            position: relative;
+            overflow: hidden;
+        }
         .item-row.item-scanning::after {
             content: '';
-            display: block;
-            width: 14px; height: 14px;
-            border: 2px solid rgba(91,156,246,0.2);
-            border-top-color: var(--accent);
-            border-radius: 50%;
-            animation: item-spin 0.7s linear infinite;
-            flex-shrink: 0;
+            position: absolute;
+            bottom: 0; left: 0;
+            height: 2px;
+            width: 35%;
+            background: linear-gradient(90deg,
+                transparent 0%,
+                var(--accent) 35%,
+                var(--accent-h) 65%,
+                transparent 100%);
+            animation: scan-sweep 1.3s ease-in-out infinite;
         }
         .item-row.item-scanned { border-color: rgba(74,222,128,0.45); transition: border-color 0.4s; }
         .item-row.item-scanned::after { display: none; }
+
+        /* ── No-metadata indicator ── */
+        .meta-pending::before {
+            content: '';
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: rgba(251, 146, 60, 0.55);
+            flex-shrink: 0;
+        }
 
         /* ── Toast ── */
         #toast {
@@ -589,6 +656,9 @@
             <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
         </div>
     </nav>
+
+    <div id="scan-progress"><div id="scan-progress-fill"></div></div>
+    <div id="scan-item-label"></div>
 
     <main>
         {% block content %}{% endblock %}
@@ -633,7 +703,11 @@
                         <input type="text" id="edit-series" name="series">
                     </div>
                 </div>
-                <div class="form-row">
+                <div id="edit-series-order-row" class="form-group" style="display:none;">
+                    <label>Order in Series</label>
+                    <input type="number" id="edit-series-order" name="series_order" step="0.1" min="0" placeholder="e.g. 3 or 4.5">
+                </div>
+                <div id="edit-season-episode-row" class="form-row">
                     <div class="form-group">
                         <label>Season</label>
                         <input type="number" id="edit-season" name="season" min="1">
@@ -655,8 +729,11 @@
                 </div>
                 <div id="search-panel" class="search-panel" style="display:none;">
                     <div class="search-input-row">
-                        <input type="text" id="search-query" placeholder="Search…" onkeydown="if(event.key==='Enter'){event.preventDefault();runMetadataSearch();}">
+                        <input type="text" id="search-query" placeholder="Title…" onkeydown="if(event.key==='Enter'){event.preventDefault();runMetadataSearch();}">
                         <button type="button" class="btn-secondary" onclick="runMetadataSearch()">Search</button>
+                    </div>
+                    <div id="search-author-row" style="display:none; margin-bottom:0.75rem;">
+                        <input type="text" id="search-author" placeholder="Author (optional)…" style="width:100%;" onkeydown="if(event.key==='Enter'){event.preventDefault();runMetadataSearch();}">
                     </div>
                     <div id="search-results" class="search-results"></div>
                 </div>
@@ -676,6 +753,25 @@
         let doneTileTypes  = new Set();
         let spinItemId     = null;
         let spinGroupName  = null;
+        let spinScanName   = null;
+
+        const TYPE_LABELS = { movies: 'Movies', shows: 'Shows', music: 'Music', audiobooks: 'Audiobooks', books: 'Books' };
+
+        function getScanScope() {
+            const m = window.location.pathname.match(/^\/library\/(movies|shows|music|audiobooks|books)(?:\/|$)/);
+            return m ? m[1] : null;
+        }
+
+        function getScanBtnLabel() {
+            const t = getScanScope();
+            return t ? 'Scan ' + TYPE_LABELS[t] : 'Scan Library';
+        }
+
+        // Set button label to reflect current page on load
+        (function () {
+            const btn = document.querySelector('.btn-scan');
+            if (btn) btn.textContent = getScanBtnLabel();
+        })();
 
         // ── Tile helpers ──────────────────────────────────────────────────
 
@@ -719,8 +815,9 @@
         }
 
         function clearAllSpinners() {
-            if (spinItemId    !== null) { clearSpinner(`[data-media-id="${spinItemId}"]`,    false); spinItemId    = null; }
+            if (spinItemId   !== null) { clearSpinner(`[data-media-id="${spinItemId}"]`,     false); spinItemId   = null; }
             if (spinGroupName !== null) { clearSpinner(`[data-group-name="${spinGroupName}"]`, false); spinGroupName = null; }
+            if (spinScanName  !== null) { clearSpinner(`[data-scan-name="${spinScanName}"]`,   false); spinScanName  = null; }
             document.querySelectorAll('.item-scanning, .item-scanned').forEach(el =>
                 el.classList.remove('item-scanning', 'item-scanned')
             );
@@ -735,6 +832,14 @@
             activeTileType = null;
             doneTileTypes.clear();
             clearAllSpinners();
+            const bar = document.getElementById('scan-progress');
+            if (bar) {
+                bar.style.display = 'none';
+                bar.classList.remove('indeterminate');
+                document.getElementById('scan-progress-fill').style.width = '0%';
+            }
+            const lbl = document.getElementById('scan-item-label');
+            if (lbl) lbl.style.display = 'none';
         }
 
         // ── Scan button text ──────────────────────────────────────────────
@@ -747,16 +852,21 @@
         // ── Polling ───────────────────────────────────────────────────────
 
         function triggerScan() {
-            const btn = document.querySelector('.btn-scan');
+            const btn  = document.querySelector('.btn-scan');
+            const type = getScanScope();
             btn.textContent = 'Starting…';
             btn.disabled = true;
 
-            fetch('/scan', { method: 'POST' })
+            fetch('/scan', {
+                method: 'POST',
+                headers: type ? { 'Content-Type': 'application/json' } : {},
+                body:    type ? JSON.stringify({ type }) : null,
+            })
                 .then(r => r.json())
                 .then(d => {
                     if (d.error) {
                         showToast(d.error);
-                        btn.textContent = 'Scan Library';
+                        btn.textContent = getScanBtnLabel();
                         btn.disabled = false;
                     } else {
                         startPolling();
@@ -764,7 +874,7 @@
                 })
                 .catch(() => {
                     showToast('Failed to start scan');
-                    btn.textContent = 'Scan Library';
+                    btn.textContent = getScanBtnLabel();
                     btn.disabled = false;
                 });
         }
@@ -796,6 +906,18 @@
                         const counts      = d.counts      ?? {};
                         const cap         = s => s.charAt(0).toUpperCase() + s.slice(1);
 
+                        // ── Progress bar ──
+                        const bar  = document.getElementById('scan-progress');
+                        const fill = document.getElementById('scan-progress-fill');
+                        bar.style.display = 'block';
+                        if (isMeta && d.total > 0) {
+                            const metaPct = Math.min(100, Math.round(d.processed / d.total * 100));
+                            bar.classList.remove('indeterminate');
+                            fill.style.width = metaPct + '%';
+                        } else {
+                            bar.classList.add('indeterminate');
+                        }
+
                         if (d.current_type) {
                             // Transition previous active tile to done
                             if (activeTileType && activeTileType !== d.current_type) {
@@ -818,7 +940,10 @@
                             if (d.phase === 'starting') {
                                 scanBtnText('Starting…');
                             } else if (isMeta) {
-                                scanBtnText(`Metadata · ${cap(d.current_type)}…`);
+                                const detail = d.total > 0
+                                    ? ` · ${d.processed}/${d.total}`
+                                    : '…';
+                                scanBtnText(`Metadata · ${cap(d.current_type)}${detail}`);
                             } else {
                                 const total = typeTotals[d.current_type] ?? 0;
                                 const pct   = total > 0
@@ -830,9 +955,22 @@
                             scanBtnText('Starting…');
                         }
 
+                        // ── Item name label ──
+                        const lbl = document.getElementById('scan-item-label');
+                        if (lbl) {
+                            const name = d.current_item_name || d.current_group || null;
+                            if (isMeta && name) {
+                                lbl.textContent  = name;
+                                lbl.style.display = 'block';
+                            } else {
+                                lbl.style.display = 'none';
+                            }
+                        }
+
                         // ── Per-item spinners ──
                         const newItemId  = d.current_item_id  ?? null;
                         const newGroup   = d.current_group    ?? null;
+                        const newScanName = d.current_item_name ?? null;
 
                         if (newItemId !== spinItemId) {
                             if (spinItemId !== null) clearSpinner(`[data-media-id="${spinItemId}"]`, true);
@@ -843,6 +981,11 @@
                             if (spinGroupName !== null) clearSpinner(`[data-group-name="${spinGroupName}"]`, true);
                             spinGroupName = newGroup;
                             if (spinGroupName !== null) setSpinner(`[data-group-name="${spinGroupName}"]`);
+                        }
+                        if (newScanName !== spinScanName) {
+                            if (spinScanName !== null) clearSpinner(`[data-scan-name="${spinScanName}"]`, true);
+                            spinScanName = newScanName;
+                            if (spinScanName !== null) setSpinner(`[data-scan-name="${spinScanName}"]`);
                         }
 
                         scanPollTimer = setTimeout(pollStatus, 1000);
@@ -855,9 +998,9 @@
                         if (wasScanning) {
                             wasScanning = false;
                             btn.textContent = '✓ Scan complete';
-                            setTimeout(() => { btn.textContent = 'Scan Library'; }, 3000);
+                            setTimeout(() => { btn.textContent = getScanBtnLabel(); }, 3000);
                         } else {
-                            btn.textContent = 'Scan Library';
+                            btn.textContent = getScanBtnLabel();
                         }
                     }
                 })
@@ -905,19 +1048,22 @@
         const id    = btn.dataset.id    || null;
         const type  = btn.dataset.type  || '';
         const group = btn.dataset.group || null;
+        const col   = btn.dataset.col   || null;
         const label = btn.dataset.label || '';
 
         dropdown.innerHTML = '';
 
-        const edit = document.createElement('button');
-        edit.textContent = 'Edit';
-        edit.onclick = () => { closeDropdown(); openEditModal(id, type, label); };
-        dropdown.appendChild(edit);
+        if (id) {
+            const edit = document.createElement('button');
+            edit.textContent = 'Edit';
+            edit.onclick = () => { closeDropdown(); openEditModal(id, type, label); };
+            dropdown.appendChild(edit);
+        }
 
         const del = document.createElement('button');
         del.textContent = group ? 'Delete All' : 'Delete';
         del.className   = 'dd-danger';
-        del.onclick     = () => { closeDropdown(); handleDelete(id, type, group, label); };
+        del.onclick     = () => { closeDropdown(); handleDelete(id, type, group, col, label); };
         dropdown.appendChild(del);
 
         const rect = btn.getBoundingClientRect();
@@ -940,13 +1086,13 @@
 
     // ── Delete ───────────────────────────────────────────────────────────────
 
-    function handleDelete(id, type, group, label) {
+    function handleDelete(id, type, group, col, label) {
         const what  = group ? `all files for "${label}"` : `"${label}"`;
         const multi = group ? ' This will delete all associated files.' : '';
         if (!confirm(`Delete ${what} from disk?${multi}\n\nThis cannot be undone.`)) return;
 
         const req = group
-            ? fetch('/api/media/group', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({type, name: group}) })
+            ? fetch('/api/media/group', { method: 'DELETE', headers: {'Content-Type':'application/json'}, body: JSON.stringify({type, name: group, ...(col ? {col} : {})}) })
             : fetch('/api/media/' + id, { method: 'DELETE' });
 
         req.then(r => r.json()).then(d => {
@@ -982,19 +1128,31 @@
                     : 'No external match';
                 document.getElementById('match-label').textContent = src;
 
-                // Pre-fill search query — for books strip any "Author - " prefix from the title
-                let searchQuery;
-                if (['books', 'audiobooks'].includes(item.type)) {
+                // Pre-fill search fields
+                const isBook = ['books', 'audiobooks'].includes(item.type);
+                document.getElementById('search-author-row').style.display = isBook ? 'block' : 'none';
+                document.getElementById('edit-series-order-row').style.display = isBook ? 'block' : 'none';
+                document.getElementById('edit-season-episode-row').style.display = isBook ? 'none' : 'block';
+                document.getElementById('edit-series-order').value = item.series_order != null ? item.series_order : '';
+                if (isBook) {
                     let t = item.title || item.filename || '';
                     if (item.author) {
-                        const na = item.author.toLowerCase();
-                        if (t.toLowerCase().startsWith(na)) t = t.slice(item.author.length).replace(/^[\s\-:]+/, '').trim();
+                        const escapedAuthor = item.author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                        // Strip leading "Author - Title" or "Author: Title" prefix
+                        t = t.replace(new RegExp('^' + escapedAuthor + '\\s*[-–:]\\s*', 'i'), '').trim();
+                        // Strip trailing " - Author" or " (Author)" suffix
+                        t = t.replace(new RegExp('\\s*[-–]\\s*' + escapedAuthor + '\\s*$', 'i'), '').trim();
+                        t = t.replace(new RegExp('\\s*\\(' + escapedAuthor + '\\)\\s*$', 'i'), '').trim();
                     }
-                    searchQuery = t || item.title || item.filename || '';
+                    // Strip series/Audible ID suffixes: "_ Series Name, Book N [ASIN]"
+                    t = t.replace(/[_:]\s*.{0,80}(?:,\s*Book\s*[\d.]+)?(?:\s*\[[^\]]{5,}\])?$/i, '').trim();
+                    t = t.replace(/\s*\[[A-Z0-9]{9,13}\]\s*$/i, '').trim();
+                    document.getElementById('search-query').value  = t || item.title || item.filename || '';
+                    document.getElementById('search-author').value = item.author || '';
                 } else {
-                    searchQuery = item.show_name || item.title || item.filename || '';
+                    document.getElementById('search-query').value  = item.show_name || item.title || item.filename || '';
+                    document.getElementById('search-author').value = '';
                 }
-                document.getElementById('search-query').value = searchQuery;
                 document.getElementById('search-results').innerHTML = '';
                 document.getElementById('search-panel').style.display = 'none';
 
@@ -1017,15 +1175,17 @@
     function submitEditForm(event) {
         event.preventDefault();
         const id   = document.getElementById('edit-id').value;
+        const soVal = document.getElementById('edit-series-order').value;
         const body = {
-            title:       document.getElementById('edit-title').value,
-            year:        document.getElementById('edit-year').value        || null,
-            description: document.getElementById('edit-description').value,
-            author:      document.getElementById('edit-author').value,
-            series:      document.getElementById('edit-series').value,
-            season:      document.getElementById('edit-season').value      || null,
-            episode:     document.getElementById('edit-episode').value     || null,
-            poster:      document.getElementById('edit-poster').value,
+            title:        document.getElementById('edit-title').value,
+            year:         document.getElementById('edit-year').value         || null,
+            description:  document.getElementById('edit-description').value,
+            author:       document.getElementById('edit-author').value,
+            series:       document.getElementById('edit-series').value,
+            season:       document.getElementById('edit-season').value       || null,
+            episode:      document.getElementById('edit-episode').value      || null,
+            poster:       document.getElementById('edit-poster').value,
+            series_order: soVal !== '' ? parseFloat(soVal) : null,
         };
 
         const btn = document.getElementById('edit-save-btn');
@@ -1060,12 +1220,16 @@
     function runMetadataSearch() {
         const query     = document.getElementById('search-query').value.trim();
         const mediaType = document.getElementById('edit-media-type').value;
+        const author    = document.getElementById('search-author').value.trim();
         const resultsEl = document.getElementById('search-results');
 
         if (!query) return;
         resultsEl.innerHTML = '<p class="search-empty">Searching…</p>';
 
-        fetch('/api/metadata/search?' + new URLSearchParams({ query, media_type: mediaType }))
+        const params = { query, media_type: mediaType };
+        if (author) params.author = author;
+
+        fetch('/api/metadata/search?' + new URLSearchParams(params))
             .then(r => r.json())
             .then(results => {
                 if (!results.length) {

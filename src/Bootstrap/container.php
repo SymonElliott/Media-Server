@@ -6,6 +6,7 @@ use App\Controllers\LibraryController;
 use App\Controllers\MediaController;
 use App\Database\Connection;
 use App\Services\LibraryScanner;
+use App\Services\Metadata\AudnexusProvider;
 use App\Services\Metadata\MetadataService;
 use App\Services\Metadata\MusicBrainzProvider;
 use App\Services\Metadata\OpenLibraryProvider;
@@ -57,12 +58,17 @@ return [
         return new OpenLibraryProvider($c->get(Client::class));
     },
 
+    AudnexusProvider::class => function ($c) {
+        return new AudnexusProvider($c->get(Client::class));
+    },
+
     MetadataService::class => function ($c) {
         return new MetadataService(
             $c->get(Connection::class),
             $c->get(TmdbProvider::class),
             $c->get(MusicBrainzProvider::class),
             $c->get(OpenLibraryProvider::class),
+            $c->get(AudnexusProvider::class),
             $c->get(Client::class),
             __DIR__ . '/../../public/covers'
         );
