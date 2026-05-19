@@ -19,14 +19,18 @@
 
 <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.5rem;">
     <h1 style="margin-bottom:0;">{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
-    <form method="post" action="/metadata/refresh-type/{{ type }}">
-        <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
-    </form>
+    <div style="display:flex; gap:0.5rem; align-items:center;">
+        <button class="btn-view-toggle" id="btn-grid" onclick="setView('grid')" title="Grid view">⊞</button>
+        <button class="btn-view-toggle" id="btn-list" onclick="setView('list')" title="List view">☰</button>
+        <form method="post" action="/metadata/refresh-type/{{ type }}">
+            <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
+        </form>
+    </div>
 </div>
 
 {% if grouped %}
-    {# Shows grouped by show_name / Music grouped by artist / Books grouped by author #}
-    <div class="item-list">
+    {# ── List view ── #}
+    <div id="view-list" class="item-list">
         {% for item in items %}
             {% set name      = item.name ?? item.show_name ?? item.author ?? '(Unknown)' %}
             {% set count     = item.file_count ?? item.episode_count ?? item.track_count ?? item.item_count ?? 0 %}
@@ -38,8 +42,6 @@
                 {% set metaLabel = count ~ ' episode' ~ (count != 1 ? 's' : '') %}
             {% elseif type == 'music' %}
                 {% set metaLabel = count ~ ' track' ~ (count != 1 ? 's' : '') %}
-            {% elseif type == 'books' %}
-                {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
             {% else %}
                 {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
             {% endif %}
@@ -64,9 +66,41 @@
             <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
         {% endfor %}
     </div>
+
+    {# ── Grid view ── #}
+    <div id="view-grid" class="grid" style="display:none;">
+        {% for item in items %}
+            {% set name  = item.name ?? item.show_name ?? item.author ?? '(Unknown)' %}
+            {% set count = item.file_count ?? item.episode_count ?? item.track_count ?? item.item_count ?? 0 %}
+            {% set thumb = item.poster ?? null %}
+            {% set href  = item.url_path is defined
+                ? '/library/' ~ type ~ '/' ~ item.url_path
+                : '/library/' ~ type ~ '/' ~ (name|url_encode) %}
+            {% if type == 'shows' %}
+                {% set metaLabel = count ~ ' episode' ~ (count != 1 ? 's' : '') %}
+            {% elseif type == 'music' %}
+                {% set metaLabel = count ~ ' track' ~ (count != 1 ? 's' : '') %}
+            {% else %}
+                {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
+            {% endif %}
+            {% set needsMeta = item.pending_meta is defined and item.pending_meta > 0 %}
+            <a href="{{ href }}" class="card{% if needsMeta %} meta-pending{% endif %}" data-group-name="{{ name }}">
+                {% if thumb %}
+                    <img src="{{ thumb }}" class="card-poster" alt="">
+                {% else %}
+                    <div class="card-poster-empty">{{ typeIcon[type] }}</div>
+                {% endif %}
+                <div class="card-title">{{ name }}</div>
+                <div class="card-meta">{{ metaLabel }}</div>
+            </a>
+        {% else %}
+            <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found.</p>
+        {% endfor %}
+    </div>
+
 {% else %}
-    {# Flat list: movies, books, audiobooks #}
-    <div class="item-list">
+    {# ── List view (flat: movies) ── #}
+    <div id="view-list" class="item-list">
         {% for item in items %}
             <div class="item-row-wrap">
                 <a href="/library/{{ type }}/{{ item.relative_path }}" class="item-row{% if not item.metadata_fetched_at %} meta-pending{% endif %}" data-media-id="{{ item.id }}">
@@ -83,7 +117,6 @@
                             {% set parts = parts|merge([item.series]) %}
                         {% endif %}
                         {% if item.year %}{% set parts = parts|merge([item.year ~ '']) %}{% endif %}
-                        {# Show format only for types where it meaningfully differs (books, audiobooks) #}
                         {% if type in ['books', 'audiobooks'] %}
                             {% set parts = parts|merge([item.extension|upper]) %}
                         {% endif %}
@@ -96,7 +129,51 @@
             <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found. Run a scan to index your library.</p>
         {% endfor %}
     </div>
+
+    {# ── Grid view (flat: movies) ── #}
+    <div id="view-grid" class="grid" style="display:none;">
+        {% for item in items %}
+            <a href="/library/{{ type }}/{{ item.relative_path }}" class="card{% if not item.metadata_fetched_at %} meta-pending{% endif %}" data-media-id="{{ item.id }}">
+                {% if item.poster %}
+                    <img src="{{ item.poster }}" class="card-poster" alt="">
+                {% else %}
+                    <div class="card-poster-empty">{{ typeIcon[type] }}</div>
+                {% endif %}
+                <div class="card-title">{{ item.title ?? item.filename }}</div>
+                {% if item.year %}<div class="card-meta">{{ item.year }}</div>{% endif %}
+            </a>
+        {% else %}
+            <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found.</p>
+        {% endfor %}
+    </div>
 {% endif %}
+
+{% block scripts %}
+<script>
+(function () {
+    const KEY  = 'browseView_{{ type }}';
+    const list = document.getElementById('view-list');
+    const grid = document.getElementById('view-grid');
+    const btnGrid = document.getElementById('btn-grid');
+    const btnList = document.getElementById('btn-list');
+
+    function applyView(v) {
+        const isGrid = v === 'grid';
+        list.style.display = isGrid ? 'none' : '';
+        grid.style.display = isGrid ? ''     : 'none';
+        btnGrid.classList.toggle('active', isGrid);
+        btnList.classList.toggle('active', !isGrid);
+    }
+
+    window.setView = function (v) {
+        localStorage.setItem(KEY, v);
+        applyView(v);
+    };
+
+    applyView(localStorage.getItem(KEY) || 'list');
+})();
+</script>
+{% endblock %}
 
 {% if pages > 1 %}
 <div class="pagination">

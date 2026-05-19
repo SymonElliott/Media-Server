@@ -105,6 +105,15 @@
         .card .card-meta  { font-size: 0.8rem; color: var(--muted); }
         .card .card-icon  { font-size: 2rem; margin-bottom: 0.25rem; }
         .card-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; margin-bottom: 0.25rem; }
+        .card-poster-empty { width: 100%; aspect-ratio: 2/3; background: var(--surface2); border-radius: 4px; margin-bottom: 0.25rem; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; }
+        .card.meta-pending { opacity: 0.7; }
+        .btn-view-toggle {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--muted); padding: 0.4rem 0.65rem; border-radius: 6px;
+            font-size: 0.95rem; cursor: pointer; line-height: 1;
+            transition: border-color 0.15s, color 0.15s;
+        }
+        .btn-view-toggle:hover, .btn-view-toggle.active { border-color: var(--accent); color: var(--accent); }
 
         /* ── People ── */
         .people-role-tabs { display: flex; gap: 0.5rem; }
