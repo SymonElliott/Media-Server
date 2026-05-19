@@ -96,6 +96,9 @@
             </div>
 
             <div class="item-hero-actions">
+                {% if person is defined and person and person.slug %}
+                    <a href="/people/{{ person.slug }}" class="btn-refresh" style="text-decoration:none;">View on People</a>
+                {% endif %}
                 {# Ellipsis menu for group/entity-level actions #}
                 {% set deleteGroup = (type == 'audiobooks' and audiobook_section == 'chapters') ? entity.book_name : name %}
                 {% set deleteCol = isSeries ? 'series' : null %}

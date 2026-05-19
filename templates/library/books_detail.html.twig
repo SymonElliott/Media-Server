@@ -79,7 +79,11 @@
                 {% endif %}
             {% endif %}
 
-            {% if level == 'book' and entity %}
+            {% if level == 'author' and person is defined and person and person.slug %}
+            <div class="item-hero-actions">
+                <a href="/people/{{ person.slug }}" class="btn-refresh" style="text-decoration:none;">View on People</a>
+            </div>
+            {% elseif level == 'book' and entity %}
             <div class="item-hero-actions">
                 <button class="btn-refresh"
                     data-id="{{ entity.id }}"

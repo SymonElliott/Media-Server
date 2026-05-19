@@ -197,7 +197,7 @@ class LibraryController
         $entries = $this->dirEntries($dirPath, $urlPath);
 
         $person = $this->db->first(
-            'SELECT image, bio FROM people WHERE name = ? AND role = "author" LIMIT 1',
+            'SELECT id, slug, image, bio FROM people WHERE name = ? AND role = "author" LIMIT 1',
             [$author]
         );
 
@@ -656,7 +656,7 @@ class LibraryController
         // For music artists, prefer the artist photo from the people table
         $person = $type === 'music'
             ? $this->db->first(
-                'SELECT image, bio FROM people WHERE name = ? AND role = "artist" LIMIT 1',
+                'SELECT id, slug, image, bio FROM people WHERE name = ? AND role = "artist" LIMIT 1',
                 [$groupKey]
               )
             : null;

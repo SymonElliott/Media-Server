@@ -501,6 +501,7 @@ class MetadataService
                 poster              = COALESCE(:poster, poster),
                 external_id         = ' . $w('external_id', ':external_id') . ',
                 external_source     = ' . $w('external_source', ':external_source') . ',
+                year                = ' . $w('year', ':year') . ',
                 metadata            = :metadata,
                 metadata_fetched_at = CURRENT_TIMESTAMP
              WHERE type = "music" AND author = :artist AND (series = :album OR (:album IS NULL AND series IS NULL))',
@@ -509,6 +510,7 @@ class MetadataService
                 'poster'          => $poster,
                 'external_id'     => $meta['external_id'] ?? null,
                 'external_source' => $meta['external_source'] ?? null,
+                'year'            => $meta['year'] ?? null,
                 'metadata'        => json_encode($meta['metadata'] ?? []),
                 'artist'          => $artist,
                 'album'           => $album,

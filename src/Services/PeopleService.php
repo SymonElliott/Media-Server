@@ -116,7 +116,9 @@ class PeopleService
                 usleep(250_000);
             }
         }
-        // Artists: MusicBrainz doesn't reliably serve photos; skip for now.
+        } elseif ($person['role'] === 'artist') {
+            $meta = $this->fetchWikipediaSummary($person['name']);
+            usleep(100_000);
 
         $image = null;
         if ($meta && ($meta['image_url'] ?? null)) {
@@ -139,6 +141,24 @@ class PeopleService
                 'id'              => $person['id'],
             ]
         );
+    }
+
+    private function fetchWikipediaSummary(string $name): ?array
+    {
+        try {
+            $slug = str_replace(' ', '_', $name);
+            $res  = $this->http->get(
+                'https://en.wikipedia.org/api/rest_v1/page/summary/' . rawurlencode($slug),
+                ['headers' => ['User-Agent' => 'MediaServer/1.0 (personal)'], 'timeout' => 10]
+            );
+            $data = json_decode($res->getBody()->getContents(), true);
+            return [
+                'bio'       => $data['extract'] ?? null,
+                'image_url' => $data['thumbnail']['source'] ?? null,
+            ];
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function downloadImage(string $url, string $key): ?string
