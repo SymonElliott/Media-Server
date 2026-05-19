@@ -115,10 +115,10 @@ class PeopleService
                 $meta = $this->openLibrary->fetchAuthorByName($person['name']);
                 usleep(250_000);
             }
-        }
         } elseif ($person['role'] === 'artist') {
             $meta = $this->fetchWikipediaSummary($person['name']);
             usleep(100_000);
+        }
 
         $image = null;
         if ($meta && ($meta['image_url'] ?? null)) {
