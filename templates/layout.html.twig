@@ -1178,19 +1178,29 @@
                 document.getElementById('edit-series-order').value = item.series_order != null ? item.series_order : '';
                 if (isBook) {
                     let t = item.title || item.filename || '';
-                    if (item.author) {
-                        const escapedAuthor = item.author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                        // Strip leading "Author - Title" or "Author: Title" prefix
-                        t = t.replace(new RegExp('^' + escapedAuthor + '\\s*[-–:]\\s*', 'i'), '').trim();
-                        // Strip trailing " - Author" or " (Author)" suffix
-                        t = t.replace(new RegExp('\\s*[-–]\\s*' + escapedAuthor + '\\s*$', 'i'), '').trim();
-                        t = t.replace(new RegExp('\\s*\\(' + escapedAuthor + '\\)\\s*$', 'i'), '').trim();
+                    // For audiobooks, pre-populate with ASIN if present so Audnexus can find it
+                    if (item.type === 'audiobooks') {
+                        const asinMatch = t.match(/\b(B[0-9A-Z]{9})\b/);
+                        if (asinMatch) {
+                            document.getElementById('search-query').value  = asinMatch[1];
+                            document.getElementById('search-author').value = item.author || '';
+                        } else {
+                            // No ASIN — fall through to cleaned-title path below
+                            item._noAsin = true;
+                        }
                     }
-                    // Strip series/Audible ID suffixes: "_ Series Name, Book N [ASIN]"
-                    t = t.replace(/[_:]\s*.{0,80}(?:,\s*Book\s*[\d.]+)?(?:\s*\[[^\]]{5,}\])?$/i, '').trim();
-                    t = t.replace(/\s*\[[A-Z0-9]{9,13}\]\s*$/i, '').trim();
-                    document.getElementById('search-query').value  = t || item.title || item.filename || '';
-                    document.getElementById('search-author').value = item.author || '';
+                    if (item.type !== 'audiobooks' || item._noAsin) {
+                        if (item.author) {
+                            const escapedAuthor = item.author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            t = t.replace(new RegExp('^' + escapedAuthor + '\\s*[-–:]\\s*', 'i'), '').trim();
+                            t = t.replace(new RegExp('\\s*[-–]\\s*' + escapedAuthor + '\\s*$', 'i'), '').trim();
+                            t = t.replace(new RegExp('\\s*\\(' + escapedAuthor + '\\)\\s*$', 'i'), '').trim();
+                        }
+                        t = t.replace(/[_:]\s*.{0,80}(?:,\s*Book\s*[\d.]+)?(?:\s*\[[^\]]{5,}\])?$/i, '').trim();
+                        t = t.replace(/\s*\[[A-Z0-9]{9,13}\]\s*$/i, '').trim();
+                        document.getElementById('search-query').value  = t || item.title || item.filename || '';
+                        document.getElementById('search-author').value = item.author || '';
+                    }
                 } else {
                     document.getElementById('search-query').value  = item.show_name || item.title || item.filename || '';
                     document.getElementById('search-author').value = '';
