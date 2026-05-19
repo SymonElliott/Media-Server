@@ -84,11 +84,12 @@
                 {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
             {% endif %}
             {% set needsMeta = item.pending_meta is defined and item.pending_meta > 0 %}
+            {% set squarePoster = type == 'music' %}
             <a href="{{ href }}" class="card{% if needsMeta %} meta-pending{% endif %}" data-group-name="{{ name }}">
                 {% if thumb %}
-                    <img src="{{ thumb }}" class="card-poster" alt="">
+                    <img src="{{ thumb }}" class="card-poster{% if squarePoster %} card-poster--square{% endif %}" alt="">
                 {% else %}
-                    <div class="card-poster-empty">{{ typeIcon[type] }}</div>
+                    <div class="card-poster-empty{% if squarePoster %} card-poster-empty--square{% endif %}">{{ typeIcon[type] }}</div>
                 {% endif %}
                 <div class="card-title">{{ name }}</div>
                 <div class="card-meta">{{ metaLabel }}</div>
