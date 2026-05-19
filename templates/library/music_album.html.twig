@@ -1,0 +1,110 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}{{ album }} — {{ artist }} — MediaServer{% endblock %}
+
+{% block content %}
+
+{# ── Breadcrumb ─────────────────────────────────────────────────────────── #}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/library/music">Music</a>
+    <span class="sep">/</span>
+    <a href="/library/music/{{ artist|url_encode }}">{{ artist }}</a>
+    <span class="sep">/</span>
+    <span>{{ album }}</span>
+</div>
+
+{# ── Hero ───────────────────────────────────────────────────────────────── #}
+{% set heroPoster = (album_meta and album_meta.poster) ? album_meta.poster
+    : ((entity and entity.poster) ? entity.poster : null) %}
+<div class="item-hero"{% if heroPoster %} style="--hero-poster: url('{{ heroPoster }}')"{% endif %}>
+    <div class="item-hero-bg"></div>
+    <div class="item-hero-overlay"></div>
+    <div class="item-hero-content">
+
+        {% if heroPoster %}
+        <div class="item-hero-poster item-hero-poster--square">
+            <img src="{{ heroPoster }}" alt="{{ album }}">
+        </div>
+        {% endif %}
+
+        <div class="item-hero-info">
+            <div class="item-hero-eyebrow">
+                <a href="/library/music/{{ artist|url_encode }}" style="color:inherit;text-decoration:none;">{{ artist }}</a>
+            </div>
+            <h1>{{ album }}</h1>
+            <div class="item-hero-sub">
+                {% set parts = [] %}
+                {% if album_meta and album_meta.year %}{% set parts = parts|merge([album_meta.year ~ '']) %}
+                {% elseif entity and entity.year %}{% set parts = parts|merge([entity.year ~ '']) %}
+                {% endif %}
+                {{ parts|join(' · ') }}
+            </div>
+
+            <div class="item-hero-actions">
+                {% if person is defined and person and person.slug %}
+                    <a href="/people/{{ person.slug }}" class="btn-refresh" style="text-decoration:none;">View Artist</a>
+                {% endif %}
+                <form method="post" action="/metadata/refresh-album" style="display:inline;">
+                    <input type="hidden" name="album" value="{{ album|e('html_attr') }}">
+                    <input type="hidden" name="artist" value="{{ artist|e('html_attr') }}">
+                    <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
+                </form>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+{# ── Description ─────────────────────────────────────────────────────────── #}
+{% if album_meta and album_meta.description %}
+<div class="item-detail-body">
+    <p class="item-description">{{ album_meta.description }}</p>
+</div>
+{% elseif not (album_meta and album_meta.metadata_fetched_at) %}
+<div class="item-detail-body">
+    <p class="item-description" style="font-style:italic;">
+        No metadata yet — click ↻ Refresh Metadata above or run a scan.
+    </p>
+</div>
+{% endif %}
+
+{# ── Track list ──────────────────────────────────────────────────────────── #}
+<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
+    Tracks
+</h2>
+
+<div class="item-list">
+    {% for entry in entries %}
+        {% if entry.id is defined and entry.id %}
+        <div class="item-row-wrap">
+            <a href="/library/music/{{ entry.url_path }}" class="item-row" data-media-id="{{ entry.id }}">
+                <span class="item-icon">🎵</span>
+                <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                <span class="item-meta">
+                    {% if entry.duration %}
+                        {% set dm = (entry.duration / 60)|round(0, 'floor') %}
+                        {% set ds = entry.duration % 60 %}
+                        {{ dm ~ ':' ~ (ds < 10 ? '0' : '') ~ ds }}
+                    {% endif %}
+                </span>
+            </a>
+            <button class="item-menu-btn"
+                data-id="{{ entry.id }}"
+                data-type="music"
+                data-label="{{ (entry.title ?? entry.name)|e }}"
+                onclick="openItemMenu(event,this)" title="Options">···</button>
+        </div>
+        {% else %}
+        <a href="/library/music/{{ entry.url_path }}" class="item-row">
+            <span class="item-icon">🎵</span>
+            <span class="item-name">{{ entry.title ?? entry.name }}</span>
+        </a>
+        {% endif %}
+    {% else %}
+        <p style="color:var(--muted);">Nothing found here.</p>
+    {% endfor %}
+</div>
+
+{% endblock %}

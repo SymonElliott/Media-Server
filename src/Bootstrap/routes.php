@@ -33,6 +33,7 @@ return function (App $app): void {
 
     $app->post('/metadata/refresh/{id}', LibraryController::class . ':refreshMetadata');
     $app->post('/metadata/refresh-series', LibraryController::class . ':refreshSeriesMetadata');
+    $app->post('/metadata/refresh-album', LibraryController::class . ':refreshAlbumMetadata');
     $app->post('/metadata/refresh-type/{type}', LibraryController::class . ':refreshTypeMetadata');
 
     $app->get('/people', PeopleController::class . ':browse');

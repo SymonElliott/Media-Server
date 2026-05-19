@@ -271,7 +271,7 @@ class MetadataService
         $rawTitle    = $item['title'] ?? $item['filename'];
         $searchTitle = $this->cleanMovieSearchTitle($rawTitle);
         $meta        = $this->tmdb->searchMovie($searchTitle, $item['year']);
-        $this->applyToSingle($item['id'], $meta);
+        $this->applyToSingle($item['id'], $meta, true);
     }
 
     private function cleanMovieSearchTitle(string $title): string
@@ -290,7 +290,7 @@ class MetadataService
     private function enrichShow(string $showName): void
     {
         $meta = $this->tmdb->searchShow($showName);
-        $this->applyToShow($showName, $meta);
+        $this->applyToShow($showName, $meta, true);
 
         if (($meta['external_id'] ?? null) && ($meta['external_source'] ?? null) === 'tmdb') {
             $this->enrichShowSeasons($showName, (int) $meta['external_id']);
@@ -359,7 +359,7 @@ class MetadataService
     {
         if (!$artist) return;
         $meta = $this->musicBrainz->searchRelease($artist, $album);
-        $this->applyToAlbum($artist, $album, $meta);
+        $this->applyToAlbum($artist, $album, $meta, true);
     }
 
     private function enrichBook(array $item): void
@@ -367,7 +367,7 @@ class MetadataService
         $raw   = $item['title'] ?? $item['filename'];
         $title = $this->cleanBookSearchTitle($raw, $item['author'] ?? null);
         $meta  = $this->openLibrary->search($title, $item['author']);
-        $this->applyToSingle($item['id'], $meta);
+        $this->applyToSingle($item['id'], $meta, true);
     }
 
     private function enrichAudiobook(?string $bookName, ?string $author, ?string $cleanTitle = null): void
@@ -377,7 +377,7 @@ class MetadataService
         // Prefer Audnexus when the title/filename contains an ASIN; otherwise use OpenLibrary.
         $meta = $this->audnexus->search($title, $author)
             ?? $this->openLibrary->search($title, $author);
-        $this->applyToBook($bookName, $meta);
+        $this->applyToBook($bookName, $meta, true);
     }
 
     // ── DB update helpers ─────────────────────────────────────────────────
@@ -516,6 +516,50 @@ class MetadataService
                 'album'           => $album,
             ]
         );
+
+        // Mirror into album_meta for the album detail page
+        if ($artist && $album) {
+            $this->db->execute(
+                'INSERT OR IGNORE INTO album_meta (album, artist) VALUES (?, ?)',
+                [$album, $artist]
+            );
+            $this->db->execute(
+                'UPDATE album_meta SET
+                    title               = ' . $w('title', ':title') . ',
+                    description         = ' . $w('description', ':description') . ',
+                    poster              = COALESCE(:poster, poster),
+                    year                = ' . $w('year', ':year') . ',
+                    external_id         = ' . $w('external_id', ':external_id') . ',
+                    external_source     = ' . $w('external_source', ':external_source') . ',
+                    metadata            = :metadata,
+                    metadata_fetched_at = CURRENT_TIMESTAMP
+                 WHERE album = :album AND artist = :artist',
+                [
+                    'title'           => $meta['title'] ?? $album,
+                    'description'     => $meta['description'] ?? null,
+                    'poster'          => $poster,
+                    'year'            => $meta['year'] ?? null,
+                    'external_id'     => $meta['external_id'] ?? null,
+                    'external_source' => $meta['external_source'] ?? null,
+                    'metadata'        => json_encode($meta['metadata'] ?? []),
+                    'album'           => $album,
+                    'artist'          => $artist,
+                ]
+            );
+        }
+    }
+
+    public function refreshAlbumMeta(string $album, string $artist): void
+    {
+        $this->db->execute(
+            'INSERT OR IGNORE INTO album_meta (album, artist) VALUES (?, ?)',
+            [$album, $artist]
+        );
+        $this->db->execute(
+            'UPDATE album_meta SET metadata_fetched_at = NULL WHERE album = ? AND artist = ?',
+            [$album, $artist]
+        );
+        $this->enrichAlbum($artist, $album);
     }
 
     private function enrichSeries(string $series, string $author): void
@@ -542,7 +586,7 @@ class MetadataService
             }
         }
 
-        $this->applyToSeries($series, $author, $meta, false, $authorAsin, $authorImage);
+        $this->applyToSeries($series, $author, $meta, true, $authorAsin, $authorImage);
     }
 
     private function applyToSeries(

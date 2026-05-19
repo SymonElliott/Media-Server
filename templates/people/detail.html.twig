@@ -49,19 +49,18 @@
     {% endif %}
 </div>
 
-{# ── Works ── #}
-{% if works is not empty %}
+{# ── Sections (Audiobooks / Books / Music / Movies / Shows) ── #}
+{% for label, section in sections %}
 <h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
-    {{ person.role == 'cast' ? 'Appearances' : 'Works' }}
+    {{ label }}
 </h2>
-
 <div class="grid">
-    {% for work in works %}
+    {% for work in section.items %}
     <a href="{{ work.url }}" class="card">
         {% if work.poster %}
-            <img src="{{ work.poster }}" alt="{{ work.name }}" class="card-poster">
+            <img src="{{ work.poster }}" alt="{{ work.name }}" class="card-poster{% if section.square %} card-poster--square{% endif %}">
         {% else %}
-            <div class="card-poster-empty">
+            <div class="card-poster-empty{% if section.square %} card-poster-empty--square{% endif %}">
                 {% if work.type == 'audiobooks' %}🎧
                 {% elseif work.type == 'books' %}📚
                 {% elseif work.type == 'music' %}🎵
@@ -71,11 +70,14 @@
             </div>
         {% endif %}
         <div class="card-title">{{ work.name }}</div>
-        {% if work.year %}<div class="card-meta">{{ work.year }}</div>{% endif %}
+        <div class="card-meta">
+            {%- if work.year %}{{ work.year }}{% endif -%}
+            {%- if work.has_audio is defined and work.has_ebook is defined and work.has_audio and work.has_ebook %} · 📖+🎧{% endif -%}
+        </div>
     </a>
     {% endfor %}
 </div>
-{% endif %}
+{% endfor %}
 
 <script>
 async function refreshPerson(id, btn) {

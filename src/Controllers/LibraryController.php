@@ -81,7 +81,11 @@ class LibraryController
         $pathDepth = count(array_filter(explode('/', $urlPath)));
 
         if (is_dir($dirPath)) {
-            $isEntityDir = ($pathDepth === 1 && in_array($type, ['shows', 'music'], true));
+            $isMusicAlbum = $type === 'music' && $pathDepth === 2;
+            $isEntityDir  = ($pathDepth === 1 && in_array($type, ['shows', 'music'], true));
+            if ($isMusicAlbum) {
+                return $this->musicAlbumDetail($response, $urlPath, $dirPath);
+            }
             if ($isEntityDir) {
                 return $this->entityDetail($response, $type, $urlPath, $dirPath);
             }
@@ -229,9 +233,13 @@ class LibraryController
             }
             $name = $entry['name'];
             if (isset($series[$name])) {
+                // Series wins; if there's also a standalone book with this name, merge counts
                 $entry['poster']     = $series[$name]['poster'];
                 $entry['item_type']  = 'series';
                 $entry['book_count'] = $series[$name]['book_count'];
+                if (isset($books[$name])) {
+                    $entry['has_standalone'] = true; // flag for template hint
+                }
             } elseif (isset($books[$name])) {
                 $entry['poster']        = $books[$name]['poster'];
                 $entry['item_type']     = 'book';
@@ -300,15 +308,24 @@ class LibraryController
             [$seriesName, $author]
         );
 
+        // Virtual merge: if a standalone book shares the series name, include its version dirs.
+        // They appear as a separate section labelled "Standalone Versions".
+        $standaloneDir  = $this->libraryPath . '/books/' . rawurlencode($author) . '/' . rawurlencode($seriesName);
+        $standaloneBook = $this->db->first(
+            'SELECT * FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ? AND series IS NULL LIMIT 1',
+            [$author, $seriesName]
+        );
+
         $html = $this->twig->render('library/books_detail.html.twig', [
-            'type'        => 'books',
-            'level'       => 'series',
-            'author'      => $author,
-            'series'      => $seriesName,
-            'book'        => null,
-            'entity'      => $seriesMeta,
-            'entries'     => $entries,
-            'urlPath'     => $urlPath,
+            'type'            => 'books',
+            'level'           => 'series',
+            'author'          => $author,
+            'series'          => $seriesName,
+            'book'            => null,
+            'entity'          => $seriesMeta,
+            'entries'         => $entries,
+            'urlPath'         => $urlPath,
+            'standalone_book' => $standaloneBook,
         ]);
         $response->getBody()->write($html);
         return $response->withHeader('Content-Type', 'text/html');
@@ -676,6 +693,60 @@ class LibraryController
 
         $response->getBody()->write($html);
         return $response->withHeader('Content-Type', 'text/html');
+    }
+
+    private function musicAlbumDetail(Response $response, string $urlPath, string $dirPath): Response
+    {
+        $parts  = array_values(array_filter(explode('/', $urlPath)));
+        $artist = $parts[0] ?? '';
+        $album  = $parts[1] ?? '';
+
+        $albumMeta = $this->db->first(
+            'SELECT * FROM album_meta WHERE album = ? AND artist = ?',
+            [$album, $artist]
+        );
+
+        // Fall back to a representative media row for year/poster if album_meta not yet populated
+        $entity = $this->db->first(
+            'SELECT * FROM media WHERE type = "music" AND author = ? AND series = ?
+             ORDER BY metadata_fetched_at DESC NULLS LAST LIMIT 1',
+            [$artist, $album]
+        );
+
+        $entries = $this->enrichEntriesWithMeta($this->dirEntries($dirPath, $urlPath), 'music', false);
+
+        $person = $this->db->first(
+            'SELECT id, slug, image, bio FROM people WHERE name = ? AND role = \'artist\' LIMIT 1',
+            [$artist]
+        );
+
+        $html = $this->twig->render('library/music_album.html.twig', [
+            'artist'     => $artist,
+            'album'      => $album,
+            'album_meta' => $albumMeta,
+            'entity'     => $entity,
+            'entries'    => $entries,
+            'person'     => $person,
+        ]);
+
+        $response->getBody()->write($html);
+        return $response->withHeader('Content-Type', 'text/html');
+    }
+
+    public function refreshAlbumMetadata(Request $request, Response $response): Response
+    {
+        $body   = (array) ($request->getParsedBody() ?? []);
+        $album  = trim($body['album'] ?? '');
+        $artist = trim($body['artist'] ?? '');
+
+        if (!$album || !$artist) {
+            return $response->withStatus(400);
+        }
+
+        $this->metadata->refreshAlbumMeta($album, $artist);
+
+        $referer = $request->getHeaderLine('Referer');
+        return $response->withHeader('Location', $referer ?: '/')->withStatus(302);
     }
 
     // ── Browse helpers ───────────────────────────────────────────────────────

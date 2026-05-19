@@ -173,7 +173,16 @@ class PeopleService
 
         try {
             $this->http->get($url, ['sink' => $diskPath, 'timeout' => 15]);
-            return file_exists($diskPath) && filesize($diskPath) > 0 ? $webPath : null;
+            if (!file_exists($diskPath) || filesize($diskPath) < 1024) {
+                @unlink($diskPath);
+                return null;
+            }
+            $mime = mime_content_type($diskPath);
+            if (!in_array($mime, ['image/jpeg', 'image/png', 'image/webp'], true)) {
+                @unlink($diskPath);
+                return null;
+            }
+            return $webPath;
         } catch (\Throwable) {
             @unlink($diskPath);
             return null;

@@ -61,9 +61,9 @@ class PeopleController
             return $response->withStatus(404);
         }
 
-        $works = $this->getWorks($person);
+        $sections = $this->getWorkSections($person);
 
-        $html = $this->twig->render('people/detail.html.twig', compact('person', 'works'));
+        $html = $this->twig->render('people/detail.html.twig', compact('person', 'sections'));
         $response->getBody()->write($html);
         return $response;
     }
@@ -76,7 +76,7 @@ class PeopleController
         return $response->withHeader('Content-Type', 'application/json');
     }
 
-    private function getWorks(array $person): array
+    private function getWorkSections(array $person): array
     {
         $name    = $person['name'];
         $libPath = $this->libraryPath;
@@ -84,57 +84,92 @@ class PeopleController
         $makeRelUrl = fn(string $type, string $path): string =>
             rawurlencode(ltrim(str_replace($libPath . '/' . $type, '', $path), '/'));
 
+        $sections = [];
+
         if ($person['role'] === 'author') {
-            $audiobooks = $this->db->query(
-                'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
-                        MAX(author) as author, "audiobooks" as type
-                 FROM media WHERE type = "audiobooks" AND author = ?
-                 GROUP BY book_name HAVING book_name IS NOT NULL
+            // Series entries — one card per series name
+            $seriesRows = $this->db->query(
+                'SELECT series as name,
+                        MAX(poster) as poster,
+                        MAX(year) as year,
+                        MAX(author) as author,
+                        \'series\' as kind
+                 FROM media
+                 WHERE type IN (\'books\', \'audiobooks\') AND author = ? AND series IS NOT NULL
+                 GROUP BY series
+                 ORDER BY MAX(year) DESC NULLS LAST, series',
+                [$name]
+            );
+            // Standalone books (no series) — one card per book_name
+            $standaloneRows = $this->db->query(
+                'SELECT book_name as name,
+                        MAX(poster) as poster,
+                        MAX(year) as year,
+                        MAX(author) as author,
+                        MAX(CASE WHEN type = \'audiobooks\' THEN 1 ELSE 0 END) as has_audio,
+                        MAX(CASE WHEN type = \'books\'      THEN 1 ELSE 0 END) as has_ebook,
+                        \'book\' as kind
+                 FROM media
+                 WHERE type IN (\'books\', \'audiobooks\') AND author = ? AND series IS NULL
+                   AND book_name IS NOT NULL
+                 GROUP BY book_name
                  ORDER BY MAX(year) DESC NULLS LAST, book_name',
                 [$name]
             );
-            foreach ($audiobooks as &$w) {
-                $w['url'] = '/library/audiobooks/' . rawurlencode($w['author'] ?? $name) . '/' . rawurlencode($w['name']);
-            }
-            unset($w);
 
-            $books = $this->db->query(
-                'SELECT title as name, poster, year, "books" as type, MIN(path) as path
-                 FROM media WHERE type = "books" AND author = ?
-                 GROUP BY title ORDER BY year DESC NULLS LAST, title',
-                [$name]
+            // Index by name for deduplication
+            $seriesNames    = array_column($seriesRows, null, 'name');
+            $standaloneNames = array_column($standaloneRows, null, 'name');
+
+            $merged = [];
+            // Add all series entries
+            foreach ($seriesRows as $w) {
+                $w['url']  = '/library/books/' . rawurlencode($w['author'] ?? $name) . '/' . rawurlencode($w['name']);
+                $w['type'] = 'books';
+                $merged[$w['name']] = $w;
+            }
+            // Add standalone books that don't share a name with a series
+            foreach ($standaloneRows as $w) {
+                if (isset($seriesNames[$w['name']])) {
+                    continue; // series with same name already covers this
+                }
+                $w['url']  = '/library/books/' . rawurlencode($w['author'] ?? $name) . '/' . rawurlencode($w['name']);
+                $w['type'] = ($w['has_audio'] ?? 0) ? 'audiobooks' : 'books';
+                $merged[$w['name']] = $w;
+            }
+
+            // Sort by year DESC, then name
+            usort($merged, fn($a, $b) =>
+                ($b['year'] ?? 0) <=> ($a['year'] ?? 0) ?: strnatcasecmp($a['name'], $b['name'])
             );
-            foreach ($books as &$w) {
-                $w['url'] = '/library/books/' . $makeRelUrl('books', $w['path']);
-            }
-            unset($w);
 
-            return array_merge($audiobooks, $books);
+            if ($merged) $sections['Books'] = ['items' => array_values($merged), 'square' => false];
         }
 
         if ($person['role'] === 'artist') {
-            $works = $this->db->query(
+            $music = $this->db->query(
                 'SELECT COALESCE(series, title) as name, MAX(poster) as poster,
-                        MAX(year) as year, MAX(author) as author, "music" as type
-                 FROM media WHERE type = "music" AND author = ?
+                        MAX(year) as year, MAX(author) as author, \'music\' as type
+                 FROM media WHERE type = \'music\' AND author = ?
                  GROUP BY COALESCE(series, title)
                  ORDER BY MAX(year) DESC NULLS LAST',
                 [$name]
             );
-            foreach ($works as &$w) {
+            foreach ($music as &$w) {
                 $w['url'] = '/library/music/' . rawurlencode($w['author'] ?? $name)
                           . ($w['name'] ? '/' . rawurlencode($w['name']) : '');
             }
             unset($w);
-            return $works;
+
+            if ($music) $sections['Music'] = ['items' => $music, 'square' => true];
         }
 
         if ($person['role'] === 'cast') {
             $pattern = '%"' . str_replace(['"', '%', '_'], ['', '\%', '\_'], $name) . '"%';
 
             $movies = $this->db->query(
-                'SELECT title as name, poster, year, "movies" as type, MIN(path) as path
-                 FROM media WHERE type = "movies" AND metadata LIKE ?
+                'SELECT title as name, poster, year, \'movies\' as type, MIN(path) as path
+                 FROM media WHERE type = \'movies\' AND metadata LIKE ?
                  GROUP BY title ORDER BY year DESC NULLS LAST',
                 [$pattern]
             );
@@ -144,8 +179,8 @@ class PeopleController
             unset($w);
 
             $shows = $this->db->query(
-                'SELECT show_name as name, MAX(poster) as poster, MAX(year) as year, "shows" as type
-                 FROM media WHERE type = "shows" AND metadata LIKE ?
+                'SELECT show_name as name, MAX(poster) as poster, MAX(year) as year, \'shows\' as type
+                 FROM media WHERE type = \'shows\' AND metadata LIKE ?
                  GROUP BY show_name HAVING show_name IS NOT NULL
                  ORDER BY MAX(year) DESC NULLS LAST',
                 [$pattern]
@@ -155,9 +190,10 @@ class PeopleController
             }
             unset($w);
 
-            return array_merge($movies, $shows);
+            if ($movies) $sections['Movies'] = ['items' => $movies, 'square' => false];
+            if ($shows)  $sections['Shows']  = ['items' => $shows,  'square' => false];
         }
 
-        return [];
+        return $sections;
     }
 }

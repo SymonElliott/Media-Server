@@ -193,4 +193,29 @@
     {% endfor %}
 </div>
 
+{# ── Standalone versions (virtual merge: series + same-named standalone book) ── #}
+{% if level == 'series' and standalone_book is defined and standalone_book %}
+<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
+    Standalone Versions
+</h2>
+<div class="item-list">
+    <div class="item-row-wrap">
+        <a href="/library/books/{{ author|url_encode }}/{{ series|url_encode }}" class="item-row">
+            {% if standalone_book.poster %}
+                <img src="{{ standalone_book.poster }}" class="item-thumb" alt="">
+            {% else %}
+                <span class="item-icon">📖</span>
+            {% endif %}
+            <span class="item-name">{{ series }}</span>
+            <span class="item-meta">{{ standalone_book.year ?? '' }}</span>
+        </a>
+        <button class="item-menu-btn"
+            data-type="books"
+            data-group="{{ series }}"
+            data-label="{{ series }}"
+            onclick="openItemMenu(event,this)" title="Options">···</button>
+    </div>
+</div>
+{% endif %}
+
 {% endblock %}

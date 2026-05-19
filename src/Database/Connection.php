@@ -86,6 +86,23 @@ class Connection
                 UNIQUE(series, author)
             );
 
+            CREATE TABLE IF NOT EXISTS album_meta (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                album               TEXT NOT NULL,
+                artist              TEXT,
+                title               TEXT,
+                description         TEXT,
+                poster              TEXT,
+                year                INTEGER,
+                external_id         TEXT,
+                external_source     TEXT,
+                metadata            TEXT DEFAULT '{}',
+                metadata_fetched_at DATETIME,
+                UNIQUE(album, artist)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_album_meta ON album_meta(album, artist);
+
             CREATE TABLE IF NOT EXISTS media (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 type                TEXT NOT NULL,
