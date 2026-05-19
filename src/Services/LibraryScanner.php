@@ -266,7 +266,7 @@ class LibraryScanner
                 season       = excluded.season,
                 episode      = excluded.episode,
                 duration     = excluded.duration,
-                series_order = excluded.series_order,
+                series_order = COALESCE(excluded.series_order, series_order),
                 indexed_at   = CURRENT_TIMESTAMP
         SQL, [
             'type'         => $dbType,
