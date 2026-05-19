@@ -731,7 +731,7 @@ class LibraryController
             'SELECT author,
                     COUNT(*) as track_count,
                     COALESCE(
-                        (SELECT image FROM people WHERE name = m.author AND role = "artist" AND image IS NOT NULL LIMIT 1),
+                        (SELECT image FROM people WHERE name = m.author AND role = \'artist\' AND image IS NOT NULL LIMIT 1),
                         MAX(poster)
                     ) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
@@ -763,7 +763,7 @@ class LibraryController
             'SELECT author,
                     COUNT(*) as item_count,
                     COALESCE(
-                        (SELECT image FROM people WHERE name = m.author AND role = "author" AND image IS NOT NULL LIMIT 1),
+                        (SELECT image FROM people WHERE name = m.author AND role = \'author\' AND image IS NOT NULL LIMIT 1),
                         MAX(poster)
                     ) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
