@@ -1,8 +1,7 @@
 {% extends 'layout.html.twig' %}
 
 {% set typeLabel = {
-    movies: 'Movies', shows: 'Shows', music: 'Music',
-    audiobooks: 'Audiobooks', books: 'Books'
+    movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books'
 } %}
 
 {% set videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'] %}
@@ -16,13 +15,33 @@
 <div class="breadcrumb">
     <a href="/">Home</a>
     <span class="sep">/</span>
-    <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
-    {% if item.show_name %}
+    <a href="/library/{{ type }}">{{ typeLabel[type] ?? type|capitalize }}</a>
+    {% if type == 'books' %}
+        {% if item.author %}
+            <span class="sep">/</span>
+            <a href="/library/books/{{ item.author|url_encode }}">{{ item.author }}</a>
+        {% endif %}
+        {% if item.series %}
+            <span class="sep">/</span>
+            <a href="/library/books/{{ item.author|url_encode }}/{{ item.series|url_encode }}">{{ item.series }}</a>
+        {% endif %}
+        {% if item.book_name %}
+            <span class="sep">/</span>
+            <a href="/library/books/{{ item.author|url_encode }}/{% if item.series %}{{ item.series|url_encode }}/{% endif %}{{ item.book_name|url_encode }}">{{ item.book_name }}</a>
+        {% endif %}
+        {% if item.book_version %}
+            <span class="sep">/</span>
+            <span>{{ item.book_version }}</span>
+        {% endif %}
+    {% elseif item.show_name %}
         <span class="sep">/</span>
         <a href="/library/{{ type }}/{{ item.show_name|url_encode }}">{{ item.show_name }}</a>
+        <span class="sep">/</span>
+        <span>{{ item.title ?? item.filename }}</span>
+    {% else %}
+        <span class="sep">/</span>
+        <span>{{ item.title ?? item.filename }}</span>
     {% endif %}
-    <span class="sep">/</span>
-    <span>{{ item.title ?? item.filename }}</span>
 </div>
 
 {# For show episodes: background = show poster, foreground = episode still.
@@ -155,7 +174,7 @@
                 {% if item.quality.audio is defined %}
                     <tr><td>Audio</td><td>{{ item.quality.audio }}</td></tr>
                 {% endif %}
-                <tr><td>Size</td><td>{{ (item.size / 1048576)|round(1) }} MB</td></tr>
+                <tr><td>Size</td><td>{{ item.size|filesize }}</td></tr>
                 {% if item.external_source %}
                     <tr><td>Metadata</td><td style="text-transform:capitalize;">{{ item.external_source }}</td></tr>
                 {% endif %}

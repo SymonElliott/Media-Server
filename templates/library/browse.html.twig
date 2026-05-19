@@ -1,12 +1,11 @@
 {% extends 'layout.html.twig' %}
 
 {% set typeLabel = {
-    movies: 'Movies', shows: 'Shows', music: 'Music',
-    audiobooks: 'Audiobooks', books: 'Books'
+    movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books'
 } %}
 
 {% set typeIcon = {
-    movies: '🎬', shows: '📺', music: '🎵', audiobooks: '🎧', books: '📚'
+    movies: '🎬', shows: '📺', music: '🎵', books: '📚'
 } %}
 
 {% block title %}{{ typeLabel[type] }} — MediaServer{% endblock %}
@@ -26,47 +25,31 @@
 </div>
 
 {% if grouped %}
-    {# Shows grouped by show_name / Music grouped by artist #}
+    {# Shows grouped by show_name / Music grouped by artist / Books grouped by author #}
     <div class="item-list">
         {% for item in items %}
-            {% set name  = item.name ?? item.book_name ?? item.show_name ?? item.author ?? '(Unknown)' %}
-            {% set count = item.file_count ?? item.episode_count ?? item.track_count ?? 0 %}
-            {% set thumb = item.poster ?? null %}
-            {% set href  = item.url_path is defined ? '/library/' ~ type ~ '/' ~ item.url_path : '/library/' ~ type ~ '/' ~ (name|url_encode) %}
+            {% set name      = item.name ?? item.show_name ?? item.author ?? '(Unknown)' %}
+            {% set count     = item.file_count ?? item.episode_count ?? item.track_count ?? item.item_count ?? 0 %}
+            {% set thumb     = item.poster ?? null %}
+            {% set href      = item.url_path is defined
+                ? '/library/' ~ type ~ '/' ~ item.url_path
+                : '/library/' ~ type ~ '/' ~ (name|url_encode) %}
             {% if type == 'shows' %}
                 {% set metaLabel = count ~ ' episode' ~ (count != 1 ? 's' : '') %}
-            {% elseif type == 'audiobooks' %}
-                {% if item.item_type == 'series' %}
-                    {% set bc = item.book_count ?? 0 %}
-                    {% set metaLabel = bc ~ ' book' ~ (bc != 1 ? 's' : '') ~ (item.author ? ' · ' ~ item.author : '') %}
-                {% else %}
-                    {% set secs = item.total_duration %}
-                    {% if secs %}
-                        {% set h = (secs / 3600)|round(0, 'floor') %}
-                        {% set m = ((secs % 3600) / 60)|round(0, 'floor') %}
-                        {% if h > 0 %}
-                            {% set durLabel = h ~ 'h ' ~ m ~ 'm' %}
-                        {% else %}
-                            {% set durLabel = m ~ 'm' %}
-                        {% endif %}
-                        {% set metaLabel = durLabel ~ (item.author ? ' · ' ~ item.author : '') %}
-                    {% elseif item.ext == 'm4b' %}
-                        {% set metaLabel = 'Audiobook' ~ (item.author ? ' · ' ~ item.author : '') %}
-                    {% else %}
-                        {% set metaLabel = count ~ ' chapter' ~ (count != 1 ? 's' : '') ~ (item.author ? ' · ' ~ item.author : '') %}
-                    {% endif %}
-                {% endif %}
-            {% else %}
+            {% elseif type == 'music' %}
                 {% set metaLabel = count ~ ' track' ~ (count != 1 ? 's' : '') %}
+            {% elseif type == 'books' %}
+                {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
+            {% else %}
+                {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
             {% endif %}
-            {% set isSeries = type == 'audiobooks' and item.item_type == 'series' %}
             {% set needsMeta = item.pending_meta is defined and item.pending_meta > 0 %}
             <div class="item-row-wrap">
-                <a href="{{ href }}" class="item-row{% if isSeries %} item-row--series{% endif %}{% if needsMeta %} meta-pending{% endif %}" data-group-name="{{ name }}">
+                <a href="{{ href }}" class="item-row{% if needsMeta %} meta-pending{% endif %}" data-group-name="{{ name }}">
                     {% if thumb %}
                         <img src="{{ thumb }}" class="item-thumb" alt="">
                     {% else %}
-                        <span class="item-icon">{{ isSeries ? '📚' : typeIcon[type] }}</span>
+                        <span class="item-icon">{{ typeIcon[type] }}</span>
                     {% endif %}
                     <span class="item-name">{{ name }}</span>
                     <span class="item-meta">{{ metaLabel }}</span>
@@ -74,7 +57,6 @@
                 <button class="item-menu-btn"
                     data-type="{{ type }}"
                     data-group="{{ name }}"
-                    {% if isSeries %}data-col="series"{% endif %}
                     data-label="{{ name }}"
                     onclick="openItemMenu(event,this)" title="Options">···</button>
             </div>

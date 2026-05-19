@@ -12,12 +12,16 @@ use SplFileInfo;
 class LibraryScanner
 {
     private const EXTENSIONS = [
-        'movies'     => ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'],
-        'shows'      => ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'],
-        'music'      => ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav'],
-        'audiobooks' => ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'],
-        'books'      => ['pdf', 'epub', 'mobi', 'azw', 'azw3', 'cbr', 'cbz'],
+        'movies' => ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'],
+        'shows'  => ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'],
+        'music'  => ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav'],
+        // books dir holds both ebooks (→ type=books) and audiobooks (→ type=audiobooks).
+        // The actual DB type is determined per-file by extension in indexFile().
+        'books'  => ['pdf', 'epub', 'mobi', 'azw', 'azw3', 'cbr', 'cbz',
+                     'mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'],
     ];
+
+    private const AUDIO_EXTS = ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'];
 
     private int    $progressWriteCounter = 0;
     private ?array $typeTotals           = null;
@@ -28,7 +32,7 @@ class LibraryScanner
         private readonly ?string $stateFile = null
     ) {}
 
-    /** Count files per type (or just one type). Stored internally so writeState() can include them automatically. */
+    /** Count files per type (or just one type). Stored internally so writeState() can include them. */
     public function countFiles(?string $onlyType = null): array
     {
         $totals = [];
@@ -74,7 +78,6 @@ class LibraryScanner
                     continue;
                 }
 
-                // Clean up macOS metadata noise automatically
                 if ($file->getFilename() === '.DS_Store') {
                     @unlink($file->getRealPath());
                     continue;
@@ -94,23 +97,25 @@ class LibraryScanner
                     $stats['skipped']++;
                 }
 
-                // Write progress every 20 files to avoid hammering disk
                 if (++$this->progressWriteCounter % 20 === 0) {
                     $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
                 }
             }
 
             $this->pruneStale($type, $scannedPaths);
+
+            // After scanning books, also prune old audiobooks rows whose files
+            // no longer exist (moved here from the former audiobooks directory).
+            if ($type === 'books') {
+                $this->pruneType('audiobooks');
+            }
         }
 
         return $stats;
     }
 
     /**
-     * Quick cleanup: delete DB rows for any file of the given type whose path no
-     * longer exists on disk. Does not scan for new files — call this between full
-     * scans to keep the library tidy after manual deletes or folder moves.
-     * Returns the number of rows removed.
+     * Delete DB rows for any file of the given type whose path no longer exists on disk.
      */
     public function pruneType(string $type): int
     {
@@ -126,35 +131,34 @@ class LibraryScanner
     }
 
     /**
-     * Remove DB rows for files that no longer exist at their stored path.
-     * Before deleting, migrate any enriched metadata to a newly-added row that
-     * represents the same file at its new location (same filename + grouping key).
+     * Remove DB rows for files that were deleted from disk during a scan.
+     * Migrates enriched metadata to a newly-indexed row at the new location when possible.
      */
     private function pruneStale(string $type, array $scannedPaths): void
     {
-        // Build a lookup set of all paths found on disk this scan
         $onDisk = array_flip($scannedPaths);
 
-        // Load all DB rows for this type (only columns needed for matching + migration)
+        // For the books directory we must check both the 'books' and 'audiobooks'
+        // DB type since audio files in /books/ are stored as type=audiobooks.
+        $dbTypes = ($type === 'books') ? ['books', 'audiobooks'] : [$type];
+        $placeholders = implode(',', array_fill(0, count($dbTypes), '?'));
+
         $dbRows = $this->db->query(
-            'SELECT id, path, filename, book_name, show_name, series,
+            "SELECT id, path, filename, book_name, book_version, show_name, series,
                     title, description, poster, external_id, external_source,
                     year, metadata, metadata_fetched_at
-             FROM media WHERE type = ?',
-            [$type]
+             FROM media WHERE type IN ($placeholders)",
+            $dbTypes
         );
 
         foreach ($dbRows as $row) {
             if (isset($onDisk[$row['path']])) {
-                continue; // still on disk, nothing to do
+                continue;
             }
 
-            // File is gone from disk. Try to find the new path for this file
-            // by matching the newly-inserted blank row with the same filename + group key.
             if ($row['metadata_fetched_at']) {
                 $newRow = $this->findRelocated($row, $type);
                 if ($newRow) {
-                    // Migrate enriched metadata from the old row to the new path's row
                     $this->db->execute(
                         'UPDATE media SET
                             title               = COALESCE(:title, title),
@@ -185,38 +189,29 @@ class LibraryScanner
         }
     }
 
-    /**
-     * Given a stale row, find the newly-inserted row that represents the same file
-     * at its new location. Matches on filename + the group key appropriate for each type.
-     */
     private function findRelocated(array $staleRow, string $type): ?array
     {
         $filename = $staleRow['filename'];
 
-        // Group key used to identify "same file, different folder"
         $groupCol = match ($type) {
+            'books'      => 'book_name',
             'audiobooks' => 'book_name',
             'shows'      => 'show_name',
             default      => null,
         };
 
-        // For audiobooks/shows we can match on filename + group — but if the group
-        // itself was renamed, fall back to filename-only within the type (only safe
-        // when the filename is unique enough, e.g. episode files or M4Bs).
         if ($groupCol && $staleRow[$groupCol]) {
             $match = $this->db->first(
-                "SELECT id FROM media WHERE type = ? AND filename = ? AND $groupCol = ? AND metadata_fetched_at IS NULL LIMIT 1",
-                [$type, $filename, $staleRow[$groupCol]]
+                "SELECT id FROM media WHERE filename = ? AND $groupCol = ? AND metadata_fetched_at IS NULL LIMIT 1",
+                [$filename, $staleRow[$groupCol]]
             );
             if ($match) return $match;
         }
 
-        // Fallback: same filename + type + no metadata yet (just inserted this scan)
-        // Only use this when filename is specific enough (not generic like "chapter01.mp3")
         if (!preg_match('/^(chapter|part|track|disc)\s*\d+/i', $filename)) {
             $match = $this->db->first(
-                'SELECT id FROM media WHERE type = ? AND filename = ? AND metadata_fetched_at IS NULL LIMIT 1',
-                [$type, $filename]
+                'SELECT id FROM media WHERE filename = ? AND metadata_fetched_at IS NULL LIMIT 1',
+                [$filename]
             );
             return $match ?: null;
         }
@@ -239,32 +234,45 @@ class LibraryScanner
 
     private function indexFile(SplFileInfo $file, string $type): bool
     {
-        $path         = $file->getRealPath();
-        $meta         = $this->extractMeta($file, $type);
-        $duration     = $type === 'audiobooks' ? $this->probeDuration($path) : null;
-        $series_order = ($type === 'audiobooks' || $type === 'books')
-            ? $this->extractSeriesOrder($meta['book_name'] ?? $meta['title'] ?? $file->getBasename('.' . $file->getExtension()))
+        $path = $file->getRealPath();
+        $ext  = strtolower($file->getExtension());
+        $meta = $this->extractMeta($file, $type);
+
+        // Audio files in the books directory are stored as type=audiobooks so
+        // MetadataService routes them to the correct enrichment provider.
+        $dbType = ($type === 'books' && in_array($ext, self::AUDIO_EXTS, true))
+            ? 'audiobooks'
+            : $type;
+
+        $needsDuration = ($dbType === 'audiobooks') || ($type === 'books' && in_array($ext, self::AUDIO_EXTS, true));
+        $duration      = $needsDuration ? $this->probeDuration($path) : null;
+
+        $series_order = ($dbType === 'audiobooks' || $dbType === 'books')
+            ? $this->extractSeriesOrder($meta['book_name'] ?? $meta['title'] ?? $file->getBasename('.' . $ext))
             : null;
 
         $existing = $this->db->first('SELECT id FROM media WHERE path = ?', [$path]);
 
         $this->db->execute(<<<SQL
-            INSERT INTO media (type, path, filename, extension, size, title, author, series, book_name, show_name, season, episode, duration, series_order)
-            VALUES (:type, :path, :filename, :extension, :size, :title, :author, :series, :book_name, :show_name, :season, :episode, :duration, :series_order)
+            INSERT INTO media (type, path, filename, extension, size, title, author, series,
+                               book_name, book_version, show_name, season, episode, duration, series_order)
+            VALUES (:type, :path, :filename, :extension, :size, :title, :author, :series,
+                    :book_name, :book_version, :show_name, :season, :episode, :duration, :series_order)
             ON CONFLICT(path) DO UPDATE SET
                 size         = excluded.size,
                 series       = excluded.series,
                 book_name    = excluded.book_name,
+                book_version = excluded.book_version,
                 season       = excluded.season,
                 episode      = excluded.episode,
                 duration     = excluded.duration,
                 series_order = excluded.series_order,
                 indexed_at   = CURRENT_TIMESTAMP
         SQL, [
-            'type'         => $type,
+            'type'         => $dbType,
             'path'         => $path,
             'filename'     => $file->getFilename(),
-            'extension'    => strtolower($file->getExtension()),
+            'extension'    => $ext,
             'size'         => $file->getSize(),
             'duration'     => $duration,
             'series_order' => $series_order,
@@ -276,15 +284,12 @@ class LibraryScanner
 
     private function extractSeriesOrder(string $name): ?float
     {
-        // "Book 7" / "Book 7.5" / "Book #7"
         if (preg_match('/\bBook\s+#?([\d]+(?:\.[\d]+)?)\b/i', $name, $m)) {
             return (float) $m[1];
         }
-        // "#12" after whitespace (series number marker)
         if (preg_match('/\s#([\d]+(?:\.[\d]+)?)\b/', $name, $m)) {
             return (float) $m[1];
         }
-        // Leading number: "01 - Title" or "1. Title"
         if (preg_match('/^([\d]+(?:\.[\d]+)?)[.\s_-]/', $name, $m)) {
             return (float) $m[1];
         }
@@ -310,9 +315,8 @@ class LibraryScanner
     {
         $relative = ltrim(str_replace($this->libraryPath . '/' . $type, '', $file->getPath()), '/');
         $parts    = array_values(array_filter(explode('/', $relative)));
+        $depth    = count($parts);
 
-        // Parse SxxExx from filename — more reliable than directory name for season,
-        // and the only source for episode number.
         $season  = isset($parts[1]) ? (int) preg_replace('/\D/', '', $parts[1]) : null;
         $episode = null;
         if (preg_match('/[Ss](\d{1,2})[Ee](\d{1,3})/', $file->getFilename(), $m)) {
@@ -322,66 +326,57 @@ class LibraryScanner
 
         return match ($type) {
             'shows' => [
-                'title'     => $file->getBasename('.' . $file->getExtension()),
-                'author'    => null,
-                'series'    => null,
-                'book_name' => null,
-                'show_name' => $parts[0] ?? null,
-                'season'    => $season,
-                'episode'   => $episode,
+                'title'        => $file->getBasename('.' . $file->getExtension()),
+                'author'       => null,
+                'series'       => null,
+                'book_name'    => null,
+                'book_version' => null,
+                'show_name'    => $parts[0] ?? null,
+                'season'       => $season,
+                'episode'      => $episode,
             ],
-            'audiobooks' => (function () use ($file, $parts): array {
-                $basename = $file->getBasename('.' . $file->getExtension());
-                $ext      = strtolower($file->getExtension());
-                if ($ext === 'm4b') {
-                    // M4B is always a self-contained book; the filename is the book title
-                    return [
-                        'title'     => $basename,
-                        'author'    => $parts[0] ?? null,
-                        'series'    => $parts[1] ?? null, // enclosing dir = series (if any)
-                        'book_name' => $basename,
-                        'show_name' => null,
-                        'season'    => null,
-                        'episode'   => null,
-                    ];
-                }
-                // MP3/FLAC/etc: enclosing directory is the book, files are chapters
+
+            // New unified books structure: Author/[Series/]BookTitle/Version/files
+            // depth 3 → Author / Book / Version  (no series)
+            // depth 4 → Author / Series / Book / Version
+            'books' => (function () use ($file, $parts, $depth): array {
+                $author      = $parts[0] ?? null;
+                $bookVersion = $depth >= 1 ? ($parts[$depth - 1] ?? null) : null;
+                $bookName    = $depth >= 2 ? ($parts[$depth - 2] ?? null) : null;
+                $series      = $depth >= 4 ? $parts[1] : null;
+
                 return [
-                    'title'     => $basename,
-                    'author'    => $parts[0] ?? null,
-                    'series'    => isset($parts[2]) ? $parts[1] : null,
-                    'book_name' => $parts[2] ?? $parts[1] ?? $basename,
-                    'show_name' => null,
-                    'season'    => null,
-                    'episode'   => null,
+                    'title'        => $file->getBasename('.' . $file->getExtension()),
+                    'author'       => $author,
+                    'series'       => $series,
+                    'book_name'    => $bookName,
+                    'book_version' => $bookVersion,
+                    'show_name'    => null,
+                    'season'       => null,
+                    'episode'      => null,
                 ];
             })(),
-            'books' => [
-                'title'     => $file->getBasename('.' . $file->getExtension()),
-                'author'    => $parts[0] ?? null,
-                'series'    => $parts[1] ?? null,
-                'book_name' => null,
-                'show_name' => null,
-                'season'    => null,
-                'episode'   => null,
-            ],
+
             'music' => [
-                'title'     => $file->getBasename('.' . $file->getExtension()),
-                'author'    => $parts[0] ?? null,
-                'series'    => $parts[1] ?? null,
-                'book_name' => null,
-                'show_name' => null,
-                'season'    => null,
-                'episode'   => null,
+                'title'        => $file->getBasename('.' . $file->getExtension()),
+                'author'       => $parts[0] ?? null,
+                'series'       => $parts[1] ?? null,
+                'book_name'    => null,
+                'book_version' => null,
+                'show_name'    => null,
+                'season'       => null,
+                'episode'      => null,
             ],
+
             default => [
-                'title'     => $file->getBasename('.' . $file->getExtension()),
-                'author'    => null,
-                'series'    => null,
-                'book_name' => null,
-                'show_name' => null,
-                'season'    => null,
-                'episode'   => null,
+                'title'        => $file->getBasename('.' . $file->getExtension()),
+                'author'       => null,
+                'series'       => null,
+                'book_name'    => null,
+                'book_version' => null,
+                'show_name'    => null,
+                'season'       => null,
+                'episode'      => null,
             ],
         };
     }

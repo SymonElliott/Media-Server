@@ -113,9 +113,10 @@ class AudnexusProvider
             if (empty($d) || isset($d['statusCode']) || isset($d['error'])) return null;
 
             return [
-                'asin'      => $d['asin'] ?? $asin,
-                'name'      => $d['name'] ?? null,
-                'image_url' => $d['image'] ?? null,
+                'asin'        => $d['asin'] ?? $asin,
+                'name'        => $d['name'] ?? null,
+                'image_url'   => $d['image'] ?? null,
+                'description' => $d['description'] ?? null,
             ];
         } catch (GuzzleException) {
             return null;

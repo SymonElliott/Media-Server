@@ -1,0 +1,93 @@
+{% extends 'layout.html.twig' %}
+
+{% set roleLabel = { author: 'Author', artist: 'Artist', cast: 'Cast' } %}
+
+{% block title %}{{ person.name }} — MediaServer{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/people">People</a>
+    <span class="sep">/</span>
+    <span>{{ person.name }}</span>
+</div>
+
+{# ── Hero ── #}
+<div class="item-hero"{% if person.image %} style="--hero-poster: url('{{ person.image }}')"{% endif %}>
+    <div class="item-hero-bg"></div>
+    <div class="item-hero-overlay"></div>
+    <div class="item-hero-content">
+
+        {% if person.image %}
+        <div class="item-hero-poster person-hero-avatar">
+            <img src="{{ person.image }}" alt="{{ person.name }}">
+        </div>
+        {% endif %}
+
+        <div class="item-hero-info">
+            <div class="item-hero-eyebrow">{{ roleLabel[person.role] ?? person.role|capitalize }}</div>
+            <h1>{{ person.name }}</h1>
+
+            <div class="item-hero-actions">
+                <button class="btn-refresh"
+                    onclick="refreshPerson({{ person.id }}, this)"
+                    title="Refresh metadata">↻ Refresh</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{# ── Bio ── #}
+<div class="item-detail-body">
+    {% if person.bio %}
+        <p class="item-description">{{ person.bio }}</p>
+    {% elseif not person.metadata_fetched_at %}
+        <p class="item-description" style="font-style:italic;">
+            No metadata yet — click ↻ Refresh above or run a scan.
+        </p>
+    {% endif %}
+</div>
+
+{# ── Works ── #}
+{% if works is not empty %}
+<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
+    {{ person.role == 'cast' ? 'Appearances' : 'Works' }}
+</h2>
+
+<div class="card-grid">
+    {% for work in works %}
+    <a href="{{ work.url }}" class="card">
+        {% if work.poster %}
+            <img src="{{ work.poster }}" alt="{{ work.name }}" class="card-poster">
+        {% else %}
+            <div class="card-icon">
+                {% if work.type == 'audiobooks' %}🎧
+                {% elseif work.type == 'books' %}📚
+                {% elseif work.type == 'music' %}🎵
+                {% elseif work.type == 'movies' %}🎬
+                {% elseif work.type == 'shows' %}📺
+                {% else %}📄{% endif %}
+            </div>
+        {% endif %}
+        <div class="card-title">{{ work.name }}</div>
+        {% if work.year %}<div class="card-meta">{{ work.year }}</div>{% endif %}
+    </a>
+    {% endfor %}
+</div>
+{% endif %}
+
+<script>
+async function refreshPerson(id, btn) {
+    btn.disabled = true;
+    btn.textContent = 'Refreshing…';
+    try {
+        await fetch('/people/' + id + '/refresh', { method: 'POST' });
+        location.reload();
+    } catch {
+        btn.disabled = false;
+        btn.textContent = '↻ Refresh';
+    }
+}
+</script>
+{% endblock %}

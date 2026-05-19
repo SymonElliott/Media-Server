@@ -107,6 +107,34 @@ class TmdbProvider
         }
     }
 
+    /** Search for a person by name and return their bio + profile photo. */
+    public function fetchPerson(string $name): ?array
+    {
+        if (!$this->apiKey) return null;
+        try {
+            $res  = $this->http->get(self::BASE . '/search/person', [
+                'query' => ['api_key' => $this->apiKey, 'query' => $name],
+            ]);
+            $data = json_decode($res->getBody()->getContents(), true);
+            $hit  = $data['results'][0] ?? null;
+            if (!$hit) return null;
+
+            $res2 = $this->http->get(self::BASE . '/person/' . $hit['id'], [
+                'query' => ['api_key' => $this->apiKey],
+            ]);
+            $d = json_decode($res2->getBody()->getContents(), true);
+
+            return [
+                'external_id'     => (string) ($d['id'] ?? $hit['id']),
+                'external_source' => 'tmdb',
+                'bio'             => ($d['biography'] ?? '') !== '' ? $d['biography'] : null,
+                'image_url'       => isset($d['profile_path']) ? self::IMAGE_BASE . $d['profile_path'] : null,
+            ];
+        } catch (GuzzleException) {
+            return null;
+        }
+    }
+
     private function movieDetails(int $id): array
     {
         $res  = $this->http->get(self::BASE . "/movie/$id", [

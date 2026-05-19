@@ -1,11 +1,10 @@
 {% extends 'layout.html.twig' %}
 
 {% set typeLabel = {
-    movies: 'Movies', shows: 'Shows', music: 'Music',
-    audiobooks: 'Audiobooks', books: 'Books'
+    movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books'
 } %}
 {% set typeIcon = {
-    movies: '🎬', shows: '📺', music: '🎵', audiobooks: '🎧', books: '📚'
+    movies: '🎬', shows: '📺', music: '🎵', books: '📚'
 } %}
 
 {% block title %}{{ name }} — MediaServer{% endblock %}
@@ -26,17 +25,29 @@
 <div class="breadcrumb">
     <a href="/">Home</a>
     <span class="sep">/</span>
-    <a href="/library/{{ type }}">{{ typeLabel[type] }}</a>
-    {% if type == 'audiobooks' and entity.author %}
+    <a href="/library/{{ type }}">{{ typeLabel[type] ?? type|capitalize }}</a>
+    {% if type == 'books' and books_breadcrumb is defined and books_breadcrumb %}
+        {% for crumb in books_breadcrumb %}
+            <span class="sep">/</span>
+            {% if not loop.last %}
+                <a href="{{ crumb.url }}">{{ crumb.label }}</a>
+            {% else %}
+                <span>{{ crumb.label }}</span>
+            {% endif %}
+        {% endfor %}
+    {% elseif entity.author %}
         <span class="sep">/</span>
         <a href="/library/{{ type }}/{{ entity.author|url_encode }}">{{ entity.author }}</a>
         {% if entity.series and entity.series != name %}
             <span class="sep">/</span>
             <a href="/library/{{ type }}/{{ entity.author|url_encode }}/{{ entity.series|url_encode }}">{{ entity.series }}</a>
         {% endif %}
+        <span class="sep">/</span>
+        <span>{{ name }}</span>
+    {% else %}
+        <span class="sep">/</span>
+        <span>{{ name }}</span>
     {% endif %}
-    <span class="sep">/</span>
-    <span>{{ name }}</span>
 </div>
 
 {# ── Hero Banner ── #}
@@ -144,7 +155,7 @@
                     {% set dm = ((entity.duration % 3600) / 60)|round(0, 'floor') %}
                     <tr><td>Duration</td><td>{{ dh > 0 ? dh ~ 'h ' : '' }}{{ dm }}m</td></tr>
                 {% endif %}
-                {% if entity.size %}<tr><td>Size</td><td>{{ (entity.size / 1048576)|round(1) }} MB</td></tr>{% endif %}
+                {% if entity.size %}<tr><td>Size</td><td>{{ entity.size|filesize }}</td></tr>{% endif %}
                 {% if entity.filename %}<tr><td>Filename</td><td style="word-break:break-all; font-size:0.8rem; color:var(--muted);">{{ entity.filename }}</td></tr>{% endif %}
             </table>
         </div>
@@ -156,7 +167,7 @@
 {# ── Seasons / Albums / Chapters ── #}
 <h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
     {% if type == 'shows' %}Seasons
-    {% elseif type == 'audiobooks' %}{{ audiobook_section == 'chapters' ? 'Chapters' : 'Books' }}
+    {% elseif type in ['audiobooks', 'books'] %}{{ audiobook_section == 'chapters' ? 'Chapters' : 'Books' }}
     {% else %}Albums{% endif %}
 </h2>
 

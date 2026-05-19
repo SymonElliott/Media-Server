@@ -14,23 +14,30 @@ $stateFile   = $root . '/storage/scan.json';
 $libraryPath = $_ENV['LIBRARY_PATH'] ?? '/library';
 $coversDir   = $root . '/public/covers';
 
-$validTypes = ['movies', 'shows', 'music', 'audiobooks', 'books'];
+$validTypes = ['movies', 'shows', 'music', 'books'];
 $filterType = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
 
-$db        = new App\Database\Connection($root . '/storage/db/media.sqlite');
-$http      = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
-$scanner   = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
-$metadata  = new App\Services\Metadata\MetadataService(
+$db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$http     = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
+$tmdb     = new App\Services\Metadata\TmdbProvider($http, $_ENV['TMDB_API_KEY'] ?? '');
+$openLib  = new App\Services\Metadata\OpenLibraryProvider($http);
+$audnexus = new App\Services\Metadata\AudnexusProvider($http);
+$scanner  = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
+$metadata = new App\Services\Metadata\MetadataService(
     $db,
-    new App\Services\Metadata\TmdbProvider($http, $_ENV['TMDB_API_KEY'] ?? ''),
+    $tmdb,
     new App\Services\Metadata\MusicBrainzProvider($http, $_ENV['MUSICBRAINZ_USER_AGENT'] ?? 'MediaServer/1.0'),
-    new App\Services\Metadata\OpenLibraryProvider($http),
+    $openLib,
+    $audnexus,
     $http,
     $coversDir
 );
+$people = new App\Services\PeopleService($db, $tmdb, $audnexus, $openLib, $http, $coversDir);
 
-// Pre-count files per type so the UI can show per-tile progress bars
-$typeTotals = $scanner->countFiles($filterType);   // also caches in $scanner for writeState()
+// Use existing DB row counts as a fast estimate for the progress total —
+// avoids a full NAS filesystem traversal before the scan even starts.
+$typeRows = $db->query('SELECT type, COUNT(*) as n FROM media GROUP BY type');
+$typeTotals = array_column($typeRows, 'n', 'type');
 $fileTotal  = array_sum($typeTotals);
 
 file_put_contents($stateFile, json_encode([
@@ -88,6 +95,17 @@ if ($filterType) {
 } else {
     $metadata->enrichAll($progress);
 }
+
+// Phase 3: sync and enrich people (authors, artists, cast)
+file_put_contents($stateFile, json_encode([
+    'running'      => true,
+    'phase'        => 'people',
+    'current_type' => null,
+    ...$stats,
+]), LOCK_EX);
+
+$people->syncFromMedia();
+$people->enrichAll();
 
 file_put_contents($stateFile, json_encode([
     'running'         => false,

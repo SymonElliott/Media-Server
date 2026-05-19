@@ -1,0 +1,53 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}People — MediaServer{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <span>People</span>
+</div>
+
+<div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:1.5rem; flex-wrap:wrap; gap:1rem;">
+    <h1 style="margin:0;">People</h1>
+    <div class="people-role-tabs">
+        <a href="/people" class="{{ role is null ? 'active' : '' }}">All</a>
+        <a href="/people?role=author" class="{{ role == 'author' ? 'active' : '' }}">Authors</a>
+        <a href="/people?role=artist" class="{{ role == 'artist' ? 'active' : '' }}">Artists</a>
+        <a href="/people?role=cast" class="{{ role == 'cast' ? 'active' : '' }}">Cast</a>
+    </div>
+</div>
+
+{% if people is empty %}
+    <p style="color:var(--muted);">No people found. Run a scan to populate this list.</p>
+{% else %}
+<div class="people-grid">
+    {% for person in people %}
+    <a href="/people/{{ person.slug }}" class="person-card">
+        <div class="person-avatar">
+            {% if person.image %}
+                <img src="{{ person.image }}" alt="{{ person.name }}">
+            {% else %}
+                <span class="person-initials">{{ person.name|split(' ')|map(w => w[0])|join('')|upper|slice(0,2) }}</span>
+            {% endif %}
+        </div>
+        <div class="person-card-name">{{ person.name }}</div>
+        <div class="person-card-role">{{ person.role|capitalize }}</div>
+    </a>
+    {% endfor %}
+</div>
+
+{% if total_pages > 1 %}
+<div class="people-pagination">
+    {% if page > 1 %}
+        <a href="/people?{% if role %}role={{ role }}&{% endif %}page={{ page - 1 }}">&lsaquo; Prev</a>
+    {% endif %}
+    <span>{{ page }} / {{ total_pages }}</span>
+    {% if page < total_pages %}
+        <a href="/people?{% if role %}role={{ role }}&{% endif %}page={{ page + 1 }}">Next &rsaquo;</a>
+    {% endif %}
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

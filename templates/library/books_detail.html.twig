@@ -1,0 +1,185 @@
+{% extends 'layout.html.twig' %}
+
+{#
+  Books hierarchy detail page — used for three levels:
+    level = 'author'  →  /library/books/Author
+    level = 'series'  →  /library/books/Author/Series
+    level = 'book'    →  /library/books/Author/[Series/]Book  (version list)
+#}
+
+{% block title %}
+    {% if level == 'author' %}{{ author }}
+    {% elseif level == 'series' %}{{ series }}
+    {% else %}{{ book }}
+    {% endif %} — MediaServer
+{% endblock %}
+
+{% block content %}
+
+{# ── Breadcrumb ─────────────────────────────────────────────────────────── #}
+<div class="breadcrumb">
+    <a href="/">Home</a>
+    <span class="sep">/</span>
+    <a href="/library/books">Books</a>
+    {% if level != 'author' %}
+        <span class="sep">/</span>
+        <a href="/library/books/{{ author|url_encode }}">{{ author }}</a>
+    {% endif %}
+    {% if level == 'book' and series %}
+        <span class="sep">/</span>
+        <a href="/library/books/{{ author|url_encode }}/{{ series|url_encode }}">{{ series }}</a>
+    {% endif %}
+    <span class="sep">/</span>
+    <span>
+        {% if level == 'author' %}{{ author }}
+        {% elseif level == 'series' %}{{ series }}
+        {% else %}{{ book }}
+        {% endif %}
+    </span>
+</div>
+
+{# ── Hero ───────────────────────────────────────────────────────────────── #}
+{% set heroPoster = entity.poster ?? entity.author_image ?? null %}
+<div class="item-hero"{% if heroPoster %} style="--hero-poster: url('{{ heroPoster }}')"{% endif %}>
+    <div class="item-hero-bg"></div>
+    <div class="item-hero-overlay"></div>
+    <div class="item-hero-content">
+
+        {% if heroPoster %}
+        <div class="item-hero-poster">
+            <img src="{{ heroPoster }}" alt="">
+        </div>
+        {% endif %}
+
+        <div class="item-hero-info">
+            {% if level == 'author' %}
+                <div class="item-hero-eyebrow">Author</div>
+                <h1>{{ author }}</h1>
+            {% elseif level == 'series' %}
+                <div class="item-hero-eyebrow">{{ author }}</div>
+                <h1>{{ series }}</h1>
+                {% if entity.description %}
+                    <div class="item-hero-sub" style="max-width:60ch;">{{ entity.description }}</div>
+                {% endif %}
+            {% else %}
+                <div class="item-hero-eyebrow">
+                    {{ author }}{% if series %} · {{ series }}{% endif %}
+                </div>
+                <h1>{{ book }}</h1>
+                {% if entity %}
+                    <div class="item-hero-sub">
+                        {% set parts = [] %}
+                        {% if entity.year %}{% set parts = parts|merge([entity.year ~ '']) %}{% endif %}
+                        {% if entity.series %}{% set parts = parts|merge([entity.series]) %}{% endif %}
+                        {{ parts|join(' · ') }}
+                    </div>
+                {% endif %}
+            {% endif %}
+
+            {% if level == 'book' and entity %}
+            <div class="item-hero-actions">
+                <button class="btn-refresh"
+                    data-id="{{ entity.id }}"
+                    data-type="books"
+                    data-label="{{ book|e }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+            {% endif %}
+        </div>
+
+    </div>
+</div>
+
+{# ── Description (book level) ───────────────────────────────────────────── #}
+{% if level == 'book' and entity %}
+<div class="item-detail-body">
+    {% if entity.description %}
+        <p class="item-description">{{ entity.description }}</p>
+    {% elseif not entity.metadata_fetched_at %}
+        <p class="item-description" style="font-style:italic;">
+            No metadata yet — run a scan or refresh to fetch it.
+        </p>
+    {% endif %}
+</div>
+{% endif %}
+
+{# ── Entry list ─────────────────────────────────────────────────────────── #}
+<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
+    {% if level == 'author' %}Library
+    {% elseif level == 'series' %}Books
+    {% else %}Versions
+    {% endif %}
+</h2>
+
+<div class="item-list">
+    {% for entry in entries %}
+        {% if not entry.is_dir %}
+            {# Unexpected file at this level — skip #}
+        {% elseif level == 'book' %}
+            {# Version entries for a book #}
+            {% set versionIcon = entry.version_type == 'audio' ? '🎧' : '📖' %}
+            <a href="/library/books/{{ entry.url_path }}" class="item-row">
+                <span class="item-icon">{{ versionIcon }}</span>
+                <span class="item-name">{{ entry.name }}</span>
+                <span class="item-meta">
+                    {% if entry.file_count is defined %}
+                        {{ entry.file_count }} file{{ entry.file_count != 1 ? 's' : '' }}
+                    {% endif %}
+                </span>
+            </a>
+        {% elseif entry.item_type is defined and entry.item_type == 'series' %}
+            {# Series entry on author page #}
+            <div class="item-row-wrap">
+                <a href="/library/books/{{ entry.url_path }}" class="item-row item-row--series" data-group-name="{{ entry.name }}">
+                    {% if entry.poster %}
+                        <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">📚</span>
+                    {% endif %}
+                    <span class="item-name">{{ entry.name }}</span>
+                    <span class="item-meta">
+                        {% if entry.book_count is defined %}
+                            {{ entry.book_count }} book{{ entry.book_count != 1 ? 's' : '' }}
+                        {% endif %}
+                    </span>
+                </a>
+                <button class="item-menu-btn"
+                    data-type="books"
+                    data-group="{{ entry.name }}"
+                    data-col="series"
+                    data-label="{{ entry.name }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+        {% else %}
+            {# Book entry (on author or series page) #}
+            <div class="item-row-wrap">
+                <a href="/library/books/{{ entry.url_path }}" class="item-row" data-group-name="{{ entry.name }}">
+                    {% if entry.poster %}
+                        <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">📖</span>
+                    {% endif %}
+                    <span class="item-name">{{ entry.name }}</span>
+                    <span class="item-meta">
+                        {%- if entry.series_order is defined and entry.series_order -%}
+                            #{{ entry.series_order|number_format(1) }}
+                        {%- elseif entry.year is defined and entry.year -%}
+                            {{ entry.year }}
+                        {%- elseif entry.version_count is defined -%}
+                            {{ entry.version_count }} version{{ entry.version_count != 1 ? 's' : '' }}
+                        {%- endif -%}
+                    </span>
+                </a>
+                <button class="item-menu-btn"
+                    data-type="books"
+                    data-group="{{ entry.name }}"
+                    data-label="{{ entry.name }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+        {% endif %}
+    {% else %}
+        <p style="color:var(--muted);">Nothing found here.</p>
+    {% endfor %}
+</div>
+
+{% endblock %}

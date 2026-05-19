@@ -48,6 +48,36 @@ class OpenLibraryProvider
         }
     }
 
+    /** Search for an author by name and return their bio + photo. */
+    public function fetchAuthorByName(string $name): ?array
+    {
+        try {
+            $res  = $this->http->get('https://openlibrary.org/search/authors.json', [
+                'query' => ['q' => $name, 'limit' => 1],
+            ]);
+            $data = json_decode($res->getBody()->getContents(), true);
+            $hit  = $data['docs'][0] ?? null;
+            if (!$hit) return null;
+
+            $olid = $hit['key'] ?? null;
+            if (!$olid) return null;
+
+            $res2 = $this->http->get("https://openlibrary.org/authors/$olid.json");
+            $d    = json_decode($res2->getBody()->getContents(), true);
+
+            $bio = is_string($d['bio'] ?? null) ? $d['bio'] : ($d['bio']['value'] ?? null);
+
+            return [
+                'external_id'     => $olid,
+                'external_source' => 'openlibrary',
+                'bio'             => $bio,
+                'image_url'       => "https://covers.openlibrary.org/a/olid/$olid-L.jpg",
+            ];
+        } catch (GuzzleException) {
+            return null;
+        }
+    }
+
     public function fetchByKey(string $key): ?array
     {
         try {

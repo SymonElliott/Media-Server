@@ -53,6 +53,22 @@ class Connection
     private function migrate(): void
     {
         $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS people (
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                name                TEXT NOT NULL,
+                slug                TEXT NOT NULL UNIQUE,
+                role                TEXT NOT NULL DEFAULT 'author',
+                image               TEXT,
+                bio                 TEXT,
+                external_id         TEXT,
+                external_source     TEXT,
+                metadata_fetched_at DATETIME,
+                indexed_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_people_role ON people(role);
+            CREATE INDEX IF NOT EXISTS idx_people_slug ON people(slug);
+
             CREATE TABLE IF NOT EXISTS series_meta (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 series              TEXT NOT NULL,
@@ -80,6 +96,8 @@ class Connection
                 title               TEXT,
                 author              TEXT,
                 series              TEXT,
+                book_name           TEXT,
+                book_version        TEXT,
                 show_name           TEXT,
                 season              INTEGER,
                 episode             INTEGER,
@@ -111,6 +129,7 @@ class Connection
             'external_source'     => 'TEXT',
             'metadata_fetched_at' => 'DATETIME',
             'book_name'           => 'TEXT',
+            'book_version'        => 'TEXT',
             'duration'            => 'INTEGER',
             'series_order'        => 'REAL',
         ] as $col => $type) {

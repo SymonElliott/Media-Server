@@ -104,6 +104,46 @@
         .card .card-title { font-weight: 600; font-size: 0.95rem; word-break: break-word; }
         .card .card-meta  { font-size: 0.8rem; color: var(--muted); }
         .card .card-icon  { font-size: 2rem; margin-bottom: 0.25rem; }
+        .card-poster { width: 100%; aspect-ratio: 2/3; object-fit: cover; border-radius: 4px; margin-bottom: 0.25rem; }
+
+        /* ── People ── */
+        .people-role-tabs { display: flex; gap: 0.5rem; }
+        .people-role-tabs a {
+            padding: 0.3rem 0.9rem; border-radius: 20px; font-size: 0.85rem;
+            text-decoration: none; color: var(--muted);
+            border: 1px solid var(--border); transition: all 0.15s;
+        }
+        .people-role-tabs a:hover, .people-role-tabs a.active {
+            color: var(--text); border-color: var(--accent); background: var(--surface2);
+        }
+        .people-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+            gap: 1.25rem;
+            margin-bottom: 2rem;
+        }
+        .person-card {
+            display: flex; flex-direction: column; align-items: center; gap: 0.5rem;
+            text-decoration: none; color: var(--text); text-align: center;
+            padding: 0.75rem; border-radius: 8px;
+            transition: background 0.15s;
+        }
+        .person-card:hover { background: var(--surface2); }
+        .person-avatar {
+            width: 90px; height: 90px; border-radius: 50%; overflow: hidden;
+            background: var(--surface2); border: 2px solid var(--border);
+            display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        }
+        .person-avatar img { width: 100%; height: 100%; object-fit: cover; }
+        .person-initials { font-size: 1.4rem; font-weight: 700; color: var(--muted); }
+        .person-card-name { font-size: 0.85rem; font-weight: 600; word-break: break-word; }
+        .person-card-role { font-size: 0.75rem; color: var(--muted); }
+        .person-hero-avatar img { border-radius: 50% !important; }
+        .people-pagination {
+            display: flex; align-items: center; justify-content: center; gap: 1.5rem;
+            margin: 2rem 0; color: var(--muted); font-size: 0.9rem;
+        }
+        .people-pagination a { color: var(--accent); text-decoration: none; }
 
         /* ── List view ── */
         .item-list { display: flex; flex-direction: column; gap: 0.5rem; }
@@ -650,8 +690,8 @@
         <a href="/library/movies" data-nav>Movies</a>
         <a href="/library/shows" data-nav>Shows</a>
         <a href="/library/music" data-nav>Music</a>
-        <a href="/library/audiobooks" data-nav>Audiobooks</a>
         <a href="/library/books" data-nav>Books</a>
+        <a href="/people" data-nav>People</a>
         <div class="nav-actions">
             <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
         </div>
@@ -755,10 +795,12 @@
         let spinGroupName  = null;
         let spinScanName   = null;
 
-        const TYPE_LABELS = { movies: 'Movies', shows: 'Shows', music: 'Music', audiobooks: 'Audiobooks', books: 'Books' };
+        const TYPE_LABELS = { movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books' };
 
         function getScanScope() {
-            const m = window.location.pathname.match(/^\/library\/(movies|shows|music|audiobooks|books)(?:\/|$)/);
+            const m = window.location.pathname.match(/^\/library\/(movies|shows|music|books)(?:\/|$)/);
+            // Treat /library/audiobooks/* as books scope
+            if (!m && window.location.pathname.startsWith('/library/audiobooks')) return 'books';
             return m ? m[1] : null;
         }
 

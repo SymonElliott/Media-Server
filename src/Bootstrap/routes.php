@@ -5,11 +5,20 @@ declare(strict_types=1);
 use App\Controllers\HomeController;
 use App\Controllers\LibraryController;
 use App\Controllers\MediaController;
+use App\Controllers\PeopleController;
 use App\Controllers\StreamController;
 use Slim\App;
 
 return function (App $app): void {
     $app->get('/', HomeController::class . ':index');
+
+    // Redirect old /library/audiobooks URLs to the consolidated /library/books
+    $app->get('/library/audiobooks', function ($req, $res) {
+        return $res->withHeader('Location', '/library/books')->withStatus(301);
+    });
+    $app->get('/library/audiobooks/{path:.*}', function ($req, $res, $args) {
+        return $res->withHeader('Location', '/library/books/' . $args['path'])->withStatus(301);
+    });
 
     $app->group('/library', function ($group) {
         $group->get('', LibraryController::class . ':index');
@@ -25,6 +34,10 @@ return function (App $app): void {
     $app->post('/metadata/refresh/{id}', LibraryController::class . ':refreshMetadata');
     $app->post('/metadata/refresh-series', LibraryController::class . ':refreshSeriesMetadata');
     $app->post('/metadata/refresh-type/{type}', LibraryController::class . ':refreshTypeMetadata');
+
+    $app->get('/people', PeopleController::class . ':browse');
+    $app->get('/people/{slug}', PeopleController::class . ':detail');
+    $app->post('/people/{id:\d+}/refresh', PeopleController::class . ':refresh');
 
     // Media CRUD + metadata search/match API
     $app->get('/api/metadata/search', MediaController::class . ':searchMetadata');
