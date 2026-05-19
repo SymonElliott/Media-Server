@@ -279,7 +279,93 @@ class LibraryScanner
             ...$meta,
         ]);
 
+        // For newly-inserted rows, recover any previously-enriched metadata that
+        // was stored under a different path (e.g. after a file move or rename).
+        if ($existing === null) {
+            $this->inheritMetadata($dbType, $path, $meta);
+        }
+
         return $existing === null;
+    }
+
+    private function inheritMetadata(string $type, string $path, array $meta): void
+    {
+        $donor = null;
+
+        if ($type === 'books' || $type === 'audiobooks') {
+            $author   = $meta['author']    ?? null;
+            $bookName = $meta['book_name'] ?? null;
+            if ($author && $bookName) {
+                $donor = $this->db->first(
+                    'SELECT title, description, poster, external_id, external_source, year, metadata, metadata_fetched_at
+                     FROM media
+                     WHERE type IN ("books","audiobooks")
+                       AND author = ? AND book_name = ?
+                       AND metadata_fetched_at IS NOT NULL
+                       AND path != ?
+                     ORDER BY metadata_fetched_at DESC LIMIT 1',
+                    [$author, $bookName, $path]
+                );
+            }
+        } elseif ($type === 'shows') {
+            $showName = $meta['show_name'] ?? null;
+            $season   = $meta['season']   ?? null;
+            $episode  = $meta['episode']  ?? null;
+            if ($showName && $season !== null && $episode !== null) {
+                $donor = $this->db->first(
+                    'SELECT title, description, poster, external_id, external_source, year, metadata, metadata_fetched_at
+                     FROM media
+                     WHERE type = "shows"
+                       AND show_name = ? AND season = ? AND episode = ?
+                       AND metadata_fetched_at IS NOT NULL
+                       AND path != ?
+                     ORDER BY metadata_fetched_at DESC LIMIT 1',
+                    [$showName, $season, $episode, $path]
+                );
+            }
+        } elseif ($type === 'movies') {
+            $title = $meta['title'] ?? null;
+            if ($title) {
+                $donor = $this->db->first(
+                    'SELECT title, description, poster, external_id, external_source, year, metadata, metadata_fetched_at
+                     FROM media
+                     WHERE type = "movies"
+                       AND title = ?
+                       AND metadata_fetched_at IS NOT NULL
+                       AND path != ?
+                     ORDER BY metadata_fetched_at DESC LIMIT 1',
+                    [$title, $path]
+                );
+            }
+        }
+
+        if (!$donor) {
+            return;
+        }
+
+        $this->db->execute(
+            'UPDATE media SET
+                title               = COALESCE(:title, title),
+                description         = COALESCE(:description, description),
+                poster              = COALESCE(:poster, poster),
+                external_id         = COALESCE(:external_id, external_id),
+                external_source     = COALESCE(:external_source, external_source),
+                year                = COALESCE(:year, year),
+                metadata            = COALESCE(:metadata, metadata),
+                metadata_fetched_at = COALESCE(:metadata_fetched_at, metadata_fetched_at)
+             WHERE path = :path',
+            [
+                'title'               => $donor['title'],
+                'description'         => $donor['description'],
+                'poster'              => $donor['poster'],
+                'external_id'         => $donor['external_id'],
+                'external_source'     => $donor['external_source'],
+                'year'                => $donor['year'],
+                'metadata'            => $donor['metadata'],
+                'metadata_fetched_at' => $donor['metadata_fetched_at'],
+                'path'                => $path,
+            ]
+        );
     }
 
     private function extractSeriesOrder(string $name): ?float

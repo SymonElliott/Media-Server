@@ -39,7 +39,10 @@
 </div>
 
 {# ── Hero ───────────────────────────────────────────────────────────────── #}
-{% set heroPoster = entity.poster ?? entity.author_image ?? null %}
+{% set personImage = (person is defined and person and person.image) ? person.image : null %}
+{% set heroPoster = level == 'author'
+    ? (personImage ?? entity.poster ?? null)
+    : (entity.poster ?? entity.author_image ?? null) %}
 <div class="item-hero"{% if heroPoster %} style="--hero-poster: url('{{ heroPoster }}')"{% endif %}>
     <div class="item-hero-bg"></div>
     <div class="item-hero-overlay"></div>
@@ -90,8 +93,12 @@
     </div>
 </div>
 
-{# ── Description (book level) ───────────────────────────────────────────── #}
-{% if level == 'book' and entity %}
+{# ── Description (author bio or book description) ────────────────────────── #}
+{% if level == 'author' and person is defined and person and person.bio %}
+<div class="item-detail-body">
+    <p class="item-description">{{ person.bio }}</p>
+</div>
+{% elseif level == 'book' and entity %}
 <div class="item-detail-body">
     {% if entity.description %}
         <p class="item-description">{{ entity.description }}</p>

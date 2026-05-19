@@ -12,11 +12,12 @@
 {% block content %}
 {# Resolve display data: series_entity overrides entity for audiobook series pages #}
 {% set isSeries = is_series is defined and is_series %}
+{% set personImage    = (person is defined and person and person.image) ? person.image : null %}
 {% set displayPoster  = isSeries
     ? (series_entity.author_image is defined and series_entity.author_image
         ? series_entity.author_image
         : (series_entity.poster is defined and series_entity.poster ? series_entity.poster : entity.poster))
-    : entity.poster %}
+    : (personImage ?? entity.poster) %}
 {% set displayDesc    = (isSeries and series_entity.description is defined and series_entity.description) ? series_entity.description : entity.description %}
 {% set displayFetched = (isSeries and series_entity is defined and series_entity) ? series_entity.metadata_fetched_at : entity.metadata_fetched_at %}
 {% set displayMeta    = (isSeries and series_meta is defined and series_meta) ? series_meta : meta %}

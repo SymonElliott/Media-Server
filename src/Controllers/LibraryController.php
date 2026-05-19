@@ -196,6 +196,11 @@ class LibraryController
         $dirPath = $this->libraryPath . '/books/' . $urlPath;
         $entries = $this->dirEntries($dirPath, $urlPath);
 
+        $person = $this->db->first(
+            'SELECT image, bio FROM people WHERE name = ? AND role = "author" LIMIT 1',
+            [$author]
+        );
+
         // Enrich directory entries with DB poster + item-type info
         $series = array_column(
             $this->db->query(
@@ -242,6 +247,7 @@ class LibraryController
             'series'  => null,
             'book'    => null,
             'entity'  => null,
+            'person'  => $person,
             'entries' => $entries,
             'urlPath' => $urlPath,
         ]);
@@ -647,6 +653,14 @@ class LibraryController
         }
         unset($entry);
 
+        // For music artists, prefer the artist photo from the people table
+        $person = $type === 'music'
+            ? $this->db->first(
+                'SELECT image, bio FROM people WHERE name = ? AND role = "artist" LIMIT 1',
+                [$groupKey]
+              )
+            : null;
+
         $html = $this->twig->render('library/entity_detail.html.twig', [
             'type'              => $type,
             'name'              => $groupKey,
@@ -657,6 +671,7 @@ class LibraryController
             'series_entity'     => null,
             'series_meta'       => null,
             'is_series'         => false,
+            'person'            => $person,
         ]);
 
         $response->getBody()->write($html);
@@ -713,9 +728,14 @@ class LibraryController
         $this->pruneGroupsByDirectory('music', 'author');
 
         $items = $this->db->query(
-            'SELECT author, COUNT(*) as track_count, MAX(poster) as poster,
+            'SELECT author,
+                    COUNT(*) as track_count,
+                    COALESCE(
+                        (SELECT image FROM people WHERE name = m.author AND role = "artist" AND image IS NOT NULL LIMIT 1),
+                        MAX(poster)
+                    ) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
-             FROM media WHERE type = "music" AND author IS NOT NULL
+             FROM media m WHERE type = "music" AND author IS NOT NULL
              GROUP BY author ORDER BY author LIMIT ? OFFSET ?',
             [$limit, $offset]
         );
@@ -740,9 +760,14 @@ class LibraryController
         }
 
         $items = $this->db->query(
-            'SELECT author, COUNT(*) as item_count, MAX(poster) as poster,
+            'SELECT author,
+                    COUNT(*) as item_count,
+                    COALESCE(
+                        (SELECT image FROM people WHERE name = m.author AND role = "author" AND image IS NOT NULL LIMIT 1),
+                        MAX(poster)
+                    ) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
-             FROM media WHERE type IN ("books","audiobooks") AND author IS NOT NULL
+             FROM media m WHERE type IN ("books","audiobooks") AND author IS NOT NULL
              GROUP BY author ORDER BY author LIMIT ? OFFSET ?',
             [$limit, $offset]
         );
