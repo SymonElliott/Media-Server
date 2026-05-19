@@ -1,6 +1,7 @@
 vendor/
 .env
 storage/db/*.sqlite
+*.db
 storage/cache/twig/
 storage/scan.json
 public/covers/*.jpg
