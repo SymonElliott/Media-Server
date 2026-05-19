@@ -260,7 +260,8 @@ class LibraryScanner
         $duration      = $needsDuration ? $this->probeDuration($path) : null;
 
         $series_order = ($dbType === 'audiobooks' || $dbType === 'books')
-            ? $this->extractSeriesOrder($meta['book_name'] ?? $meta['title'] ?? $file->getBasename('.' . $ext))
+            ? ($this->extractSeriesOrder($meta['book_name'] ?? $meta['title'] ?? '')
+               ?? $this->extractSeriesOrder($file->getBasename('.' . $ext)))
             : null;
 
         $existing = $this->db->first('SELECT id FROM media WHERE path = ?', [$path]);

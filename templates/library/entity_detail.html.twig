@@ -228,7 +228,7 @@
                     <span class="item-name">{{ entry.title ?? entry.name }}</span>
                     <span class="item-meta">
                         {%- if entry.series_order is defined and entry.series_order -%}
-                            {{- entry.series_order|number_format(1) -}}
+                            {{- entry.series_order % 1 == 0 ? entry.series_order|number_format(0) : entry.series_order|number_format(1) -}}
                         {%- elseif not entry.is_dir -%}
                             {{- entry.name|split('.')|last|upper -}}
                         {%- endif -%}

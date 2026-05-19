@@ -148,8 +148,8 @@
                     onclick="openFmtDetail(this)">
                     <span class="item-icon">📖</span>
                     <span class="item-name">{{ file.stem }}</span>
+                    <span class="fmt-default-badge">Default</span>
                     <span class="item-meta">{{ file.extension|upper }}</span>
-                    <span class="fmt-default-badge" style="display:none; font-size:0.75rem; color:var(--accent); margin-left:0.5rem;">Default</span>
                 </button>
                 <button class="item-menu-btn"
                     data-fmt-type="ebook"
@@ -179,6 +179,7 @@
                 onclick="openFmtDetail(this)">
                 <span class="item-icon">&#9654;</span>
                 <span class="item-name">{{ entry.name }}</span>
+                <span class="fmt-default-badge">Default</span>
                 <span class="item-meta">
                     {%- if entry.is_dir -%}
                         {{ entry.file_count }} chapter{{ entry.file_count != 1 ? 's' : '' }}
@@ -186,7 +187,6 @@
                         {{ (entry.extension ?? 'audio')|upper }}
                     {%- endif -%}
                 </span>
-                <span class="fmt-default-badge" style="display:none; font-size:0.75rem; color:var(--accent); margin-left:0.5rem;">Default</span>
             </button>
             <button class="item-menu-btn"
                 data-fmt-type="audio"
@@ -250,6 +250,14 @@
             cursor: pointer; transition: background 0.15s, border-color 0.15s;
         }
         .btn-delete-fmt:hover { background: rgba(238,0,85,0.1); border-color: #e05; }
+        .fmt-default-badge {
+            display: none;
+            font-size: 0.7rem; font-weight: 500;
+            color: var(--accent); border: 1px solid var(--accent);
+            border-radius: 10px; padding: 0.1rem 0.5rem;
+            line-height: 1.5; white-space: nowrap;
+            margin-right: 0.4rem; flex-shrink: 0;
+        }
     </style>
 
     <div id="fmt-overlay" style="display:none;" onclick="if(event.target===this)closeFmtDetail()">
@@ -501,7 +509,7 @@
                     <span class="item-name">{{ entry.name }}</span>
                     <span class="item-meta">
                         {%- if entry.series_order is defined and entry.series_order -%}
-                            #{{ entry.series_order|number_format(1) }}
+                            #{{ entry.series_order % 1 == 0 ? entry.series_order|number_format(0) : entry.series_order|number_format(1) }}
                         {%- elseif entry.year is defined and entry.year -%}
                             {{ entry.year }}
                         {%- elseif entry.version_count is defined -%}
