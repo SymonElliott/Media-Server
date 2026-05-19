@@ -214,6 +214,7 @@
 
 {% if ext == 'epub' or (ext in ['mobi', 'azw', 'azw3'] and calibreAvailable) %}
 {% block scripts %}
+<script src="/js/jszip.min.js"></script>
 <script src="/js/epub.min.js"></script>
 <script>
 (function () {
