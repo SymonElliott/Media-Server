@@ -1,5 +1,7 @@
 {% extends 'layout.html.twig' %}
 
+{% block scan_context %}{"type":"books","group":{{ author|json_encode }}}{% endblock %}
+
 {#
   Books hierarchy detail page — used for three levels:
     level = 'author'  →  /library/books/Author
@@ -37,6 +39,12 @@
         {% endif %}
     </span>
 </div>
+
+{# ── Pre-compute format sets for book level (needed in hero + list) ─────── #}
+{% if level == 'book' %}
+    {% set audioEntries = entries|filter(e => e.version_type is defined and e.version_type == 'audio') %}
+    {% set ebookEntries = entries|filter(e => e.version_type is defined and e.version_type == 'ebook') %}
+{% endif %}
 
 {# ── Hero ───────────────────────────────────────────────────────────────── #}
 {% set personImage = (person is defined and person and person.image) ? person.image : null %}
@@ -83,13 +91,21 @@
             <div class="item-hero-actions">
                 <a href="/people/{{ person.slug }}" class="btn-refresh" style="text-decoration:none;">View on People</a>
             </div>
-            {% elseif level == 'book' and entity %}
+            {% elseif level == 'book' %}
             <div class="item-hero-actions">
+                {% if ebookEntries is defined and ebookEntries|length > 0 %}
+                <a id="btn-read" href="#" target="_blank" rel="noopener" class="btn-play-hero" style="display:none">Read</a>
+                {% endif %}
+                {% if audioEntries is defined and audioEntries|length > 0 %}
+                <a id="btn-listen" href="#" target="_blank" rel="noopener" class="btn-play-hero" style="display:none">&#9654; Listen</a>
+                {% endif %}
+                {% if entity %}
                 <button class="btn-refresh"
                     data-id="{{ entity.id }}"
                     data-type="books"
                     data-label="{{ book|e }}"
                     onclick="openItemMenu(event,this)" title="Options">···</button>
+                {% endif %}
             </div>
             {% endif %}
         </div>
@@ -115,33 +131,342 @@
 {% endif %}
 
 {# ── Entry list ─────────────────────────────────────────────────────────── #}
-<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
-    {% if level == 'author' %}Library
-    {% elseif level == 'series' %}Books
-    {% else %}Versions
+{% if level == 'book' %}
+
+    {% if ebookEntries|length > 0 %}
+    <h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Ebooks</h2>
+    <div class="item-list">
+        {% for entry in ebookEntries %}
+            {% for file in entry.files %}
+            <div class="item-row-wrap">
+                <button class="item-row fmt-row" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;"
+                    data-fmt-type="ebook"
+                    data-fmt-id="{{ file.db_id ?? '' }}"
+                    data-fmt-label="{{ file.stem|e }}"
+                    data-fmt-ext="{{ file.extension }}"
+                    data-fmt-url="{{ file.url_path }}"
+                    onclick="openFmtDetail(this)">
+                    <span class="item-icon">📖</span>
+                    <span class="item-name">{{ file.stem }}</span>
+                    <span class="item-meta">{{ file.extension|upper }}</span>
+                    <span class="fmt-default-badge" style="display:none; font-size:0.75rem; color:var(--accent); margin-left:0.5rem;">Default</span>
+                </button>
+                <button class="item-menu-btn"
+                    data-fmt-type="ebook"
+                    data-fmt-id="{{ file.db_id ?? '' }}"
+                    data-fmt-label="{{ file.stem|e }}"
+                    data-fmt-url="{{ file.url_path }}"
+                    onclick="openFmtMenu(event,this)" title="Options">···</button>
+            </div>
+            {% endfor %}
+        {% endfor %}
+    </div>
     {% endif %}
-</h2>
+
+    {% if audioEntries|length > 0 %}
+    <h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Audiobooks</h2>
+    <div class="item-list">
+        {% for entry in audioEntries %}
+        <div class="item-row-wrap">
+            <button class="item-row fmt-row" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;"
+                data-fmt-type="audio"
+                data-fmt-id="{{ entry.first_db_id ?? '' }}"
+                data-fmt-label="{{ entry.name|e }}"
+                data-fmt-ext="{{ entry.extension ?? 'audio' }}"
+                data-fmt-url="{{ entry.url_path }}"
+                data-fmt-count="{{ entry.file_count }}"
+                data-fmt-is-dir="{{ entry.is_dir ? '1' : '0' }}"
+                onclick="openFmtDetail(this)">
+                <span class="item-icon">&#9654;</span>
+                <span class="item-name">{{ entry.name }}</span>
+                <span class="item-meta">
+                    {%- if entry.is_dir -%}
+                        {{ entry.file_count }} chapter{{ entry.file_count != 1 ? 's' : '' }}
+                    {%- else -%}
+                        {{ (entry.extension ?? 'audio')|upper }}
+                    {%- endif -%}
+                </span>
+                <span class="fmt-default-badge" style="display:none; font-size:0.75rem; color:var(--accent); margin-left:0.5rem;">Default</span>
+            </button>
+            <button class="item-menu-btn"
+                data-fmt-type="audio"
+                data-fmt-id="{{ entry.first_db_id ?? '' }}"
+                data-fmt-label="{{ entry.name|e }}"
+                data-fmt-ext="{{ entry.extension ?? 'audio' }}"
+                data-fmt-url="{{ entry.url_path }}"
+                data-fmt-count="{{ entry.file_count }}"
+                data-fmt-is-dir="{{ entry.is_dir ? '1' : '0' }}"
+                onclick="openFmtMenu(event,this)" title="Options">···</button>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if ebookEntries|length == 0 and audioEntries|length == 0 %}
+    <p style="color:var(--muted);">Nothing found here.</p>
+    {% endif %}
+
+    {# ── File detail overlay ──────────────────────────────────────────────── #}
+    <style>
+        .fmt-overlay-backdrop {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+            z-index: 300; display: flex; align-items: center; justify-content: center;
+        }
+        .fmt-overlay-panel {
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 10px; padding: 1.75rem; width: 100%; max-width: 420px;
+            position: relative; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .fmt-overlay-close {
+            position: absolute; top: 0.75rem; right: 0.75rem;
+            background: none; border: none; color: var(--muted);
+            font-size: 1.3rem; cursor: pointer; line-height: 1;
+            padding: 0.2rem 0.4rem; border-radius: 4px;
+            transition: color 0.15s;
+        }
+        .fmt-overlay-close:hover { color: var(--text); }
+        .fmt-overlay-icon { font-size: 2rem; margin-bottom: 0.5rem; }
+        .fmt-overlay-title { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.25rem; }
+        .fmt-overlay-sub { font-size: 0.85rem; color: var(--muted); margin-bottom: 1.25rem; }
+        .fmt-overlay-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 1rem; }
+        .fmt-overlay-divider { border: none; border-top: 1px solid var(--border); margin: 1rem 0; }
+        .fmt-overlay-mgmt { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+        .btn-set-default {
+            background: none; border: 1px solid var(--border); color: var(--muted);
+            padding: 0.35rem 0.85rem; border-radius: 6px; font-size: 0.85rem;
+            cursor: pointer; transition: color 0.15s, border-color 0.15s;
+        }
+        .btn-set-default:hover { color: var(--accent); border-color: var(--accent); }
+        .btn-set-default.is-default { color: var(--accent); border-color: var(--accent); }
+        .btn-edit-meta {
+            background: none; border: 1px solid var(--border); color: var(--muted);
+            padding: 0.35rem 0.85rem; border-radius: 6px; font-size: 0.85rem;
+            cursor: pointer; transition: color 0.15s, border-color 0.15s;
+        }
+        .btn-edit-meta:hover { color: var(--text); border-color: var(--muted); }
+        .btn-delete-fmt {
+            background: none; border: 1px solid var(--border); color: #e05;
+            padding: 0.35rem 0.85rem; border-radius: 6px; font-size: 0.85rem;
+            cursor: pointer; transition: background 0.15s, border-color 0.15s;
+        }
+        .btn-delete-fmt:hover { background: rgba(238,0,85,0.1); border-color: #e05; }
+    </style>
+
+    <div id="fmt-overlay" style="display:none;" onclick="if(event.target===this)closeFmtDetail()">
+        <div class="fmt-overlay-backdrop" onclick="closeFmtDetail()">
+            <div class="fmt-overlay-panel" onclick="event.stopPropagation()">
+                <button class="fmt-overlay-close" onclick="closeFmtDetail()">×</button>
+                <div class="fmt-overlay-icon" id="fo-icon"></div>
+                <div class="fmt-overlay-title" id="fo-title"></div>
+                <div class="fmt-overlay-sub" id="fo-sub"></div>
+                <div class="fmt-overlay-actions" id="fo-actions"></div>
+                <hr class="fmt-overlay-divider">
+                <div class="fmt-overlay-mgmt" id="fo-mgmt"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function () {
+        const BOOK_KEY  = {{ urlPath|json_encode|raw }};
+        const defKey    = t => 'bdef-' + t + ':' + BOOK_KEY;
+        const getDefUrl = t => localStorage.getItem(defKey(t));
+        const setDefUrl = (t, url) => { localStorage.setItem(defKey(t), url); };
+
+        // ── Init CTA buttons ─────────────────────────────────────────────────
+        function refreshCTAs() {
+            const rows = document.querySelectorAll('.fmt-row');
+
+            // Determine best ebook / audio url
+            let ebookUrl = getDefUrl('ebook');
+            let audioUrl = getDefUrl('audio');
+
+            if (!ebookUrl) {
+                const r = document.querySelector('.fmt-row[data-fmt-type="ebook"]');
+                ebookUrl = r ? r.dataset.fmtUrl : null;
+            }
+            if (!audioUrl) {
+                const r = document.querySelector('.fmt-row[data-fmt-type="audio"]');
+                audioUrl = r ? r.dataset.fmtUrl : null;
+            }
+
+            const btnRead   = document.getElementById('btn-read');
+            const btnListen = document.getElementById('btn-listen');
+            if (btnRead && ebookUrl) {
+                btnRead.href         = '/read/books/' + ebookUrl;
+                btnRead.style.display = '';
+            }
+            if (btnListen && audioUrl) {
+                btnListen.href         = '/library/books/' + audioUrl;
+                btnListen.style.display = '';
+            }
+        }
+
+        // ── Default badges ───────────────────────────────────────────────────
+        function refreshBadges() {
+            const ebookDef = getDefUrl('ebook');
+            const audioDef = getDefUrl('audio');
+            document.querySelectorAll('.fmt-row').forEach(row => {
+                const badge = row.querySelector('.fmt-default-badge');
+                if (!badge) return;
+                const t   = row.dataset.fmtType;
+                const def = t === 'ebook' ? ebookDef : audioDef;
+                badge.style.display = (def && row.dataset.fmtUrl === def) ? '' : 'none';
+            });
+        }
+
+        // ── Set default ──────────────────────────────────────────────────────
+        window.setFmtDefault = function (type, url, label) {
+            setDefUrl(type, url);
+            refreshCTAs();
+            refreshBadges();
+            // Update overlay button state if open
+            const btn = document.getElementById('fo-set-default');
+            if (btn) { btn.classList.add('is-default'); btn.textContent = '★ Default'; }
+            showToast('Default ' + (type === 'ebook' ? 'ebook' : 'audiobook') + ' set');
+        };
+
+        // ── Open overlay ─────────────────────────────────────────────────────
+        window.openFmtDetail = function (row) {
+            const type  = row.dataset.fmtType;
+            const id    = row.dataset.fmtId   || null;
+            const label = row.dataset.fmtLabel || '';
+            const ext   = row.dataset.fmtExt  || '';
+            const url   = row.dataset.fmtUrl  || '';
+            const count = row.dataset.fmtCount || null;
+
+            document.getElementById('fo-icon').textContent  = type === 'audio' ? '▶' : '📖';
+            document.getElementById('fo-title').textContent = label;
+
+            const isDir = row.dataset.fmtIsDir === '1';
+            const sub = type === 'audio'
+                ? (isDir && count ? count + ' chapter' + (count != 1 ? 's' : '') : ext.toUpperCase())
+                : ext.toUpperCase();
+            document.getElementById('fo-sub').textContent = sub;
+
+            // Primary actions
+            let actHtml = '';
+            if (type === 'ebook') {
+                actHtml += `<a href="/read/books/${url}" target="_blank" rel="noopener" class="btn-play-hero">Read ${ext.toUpperCase()}</a>`;
+                actHtml += `<a href="/stream/books/${url}" class="btn-refresh" download style="text-decoration:none;">Download</a>`;
+            } else {
+                actHtml += `<a href="/library/books/${url}" target="_blank" rel="noopener" class="btn-play-hero">&#9654; Listen</a>`;
+            }
+            document.getElementById('fo-actions').innerHTML = actHtml;
+
+            // Management actions
+            const isDefault = getDefUrl(type) === url;
+            let mgmtHtml = `<button id="fo-set-default" class="btn-set-default${isDefault ? ' is-default' : ''}"
+                onclick="setFmtDefault('${type}','${url.replace(/'/g,"\\'")}','${label.replace(/'/g,"\\'")}')">
+                ${isDefault ? '★ Default' : 'Set as Default'}
+            </button>`;
+            if (id) {
+                mgmtHtml += `<button class="btn-edit-meta"
+                    onclick="openEditModal('${id}','books','${label.replace(/'/g,"\\'")}')">Edit Metadata</button>`;
+                mgmtHtml += `<button class="btn-delete-fmt"
+                    onclick="handleDelete('${id}','books',null,null,'${label.replace(/'/g,"\\'")}');closeFmtDetail()">Delete</button>`;
+            }
+            document.getElementById('fo-mgmt').innerHTML = mgmtHtml;
+
+            document.getElementById('fmt-overlay').style.display = '';
+            document.addEventListener('keydown', fmtEscHandler);
+        };
+
+        window.closeFmtDetail = function () {
+            document.getElementById('fmt-overlay').style.display = 'none';
+            document.removeEventListener('keydown', fmtEscHandler);
+        };
+
+        function fmtEscHandler(e) {
+            if (e.key === 'Escape') closeFmtDetail();
+        }
+
+        // ── Ellipsis menu (reuses layout dropdown) ───────────────────────────
+        window.openFmtMenu = function (event, btn) {
+            event.preventDefault();
+            event.stopPropagation();
+
+            const type  = btn.dataset.fmtType;
+            const id    = btn.dataset.fmtId   || null;
+            const label = btn.dataset.fmtLabel || '';
+            const url   = btn.dataset.fmtUrl  || '';
+            const count = btn.dataset.fmtCount || null;
+
+            // Reuse the global singleton dropdown from layout
+            const dd = document.getElementById('item-dropdown');
+            if (!dd) return;
+
+            // Close any open dropdown first (layout's closeDropdown)
+            if (typeof closeDropdown === 'function') closeDropdown();
+
+            dd.innerHTML = '';
+
+            const mkBtn = (text, cls, cb) => {
+                const b = document.createElement('button');
+                b.textContent = text;
+                if (cls) b.className = cls;
+                b.onclick = cb;
+                dd.appendChild(b);
+            };
+
+            mkBtn('Details', '', () => { closeDropdown(); openFmtDetail(btn); });
+
+            const isDefault = getDefUrl(type) === url;
+            mkBtn(isDefault ? '★ Default' : 'Set as Default', isDefault ? 'dd-active' : '', () => {
+                closeDropdown();
+                setFmtDefault(type, url, label);
+            });
+
+            if (id) {
+                mkBtn('Edit Metadata', '', () => { closeDropdown(); openEditModal(id, 'books', label); });
+                mkBtn('Delete', 'dd-danger', () => { closeDropdown(); handleDelete(id, 'books', null, null, label); });
+            }
+
+            const rect = btn.getBoundingClientRect();
+            dd.style.display = 'block';
+            dd.style.top     = (rect.bottom + 4) + 'px';
+            dd.style.left    = Math.max(4, rect.right - 160) + 'px';
+
+            // Track active trigger so layout's global click-away handler works
+            if (typeof activeTrigger !== 'undefined') {
+                btn.classList.add('active');
+                // eslint-disable-next-line no-global-assign
+                activeTrigger = btn;
+            }
+        };
+
+        // ── Boot ─────────────────────────────────────────────────────────────
+        document.addEventListener('DOMContentLoaded', function () {
+            // Auto-set default when only one option exists for a type
+            ['ebook', 'audio'].forEach(function (type) {
+                if (getDefUrl(type)) return; // already stored
+                const rows = document.querySelectorAll('.fmt-row[data-fmt-type="' + type + '"]');
+                if (rows.length === 1) setDefUrl(type, rows[0].dataset.fmtUrl);
+            });
+            refreshCTAs();
+            refreshBadges();
+        });
+    })();
+    </script>
+
+{% else %}
+{% if level == 'author' %}
+<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">Library</h2>
+{% endif %}
 
 <div class="item-list">
     {% for entry in entries %}
         {% if not entry.is_dir %}
             {# Unexpected file at this level — skip #}
-        {% elseif level == 'book' %}
-            {# Version entries for a book #}
-            {% set versionIcon = entry.version_type == 'audio' ? '🎧' : '📖' %}
-            <a href="/library/books/{{ entry.url_path }}" class="item-row">
-                <span class="item-icon">{{ versionIcon }}</span>
-                <span class="item-name">{{ entry.name }}</span>
-                <span class="item-meta">
-                    {% if entry.file_count is defined %}
-                        {{ entry.file_count }} file{{ entry.file_count != 1 ? 's' : '' }}
-                    {% endif %}
-                </span>
-            </a>
         {% elseif entry.item_type is defined and entry.item_type == 'series' %}
-            {# Series entry on author page #}
+            {# Series entry on author page — expandable #}
+            <div class="item-expandable">
             <div class="item-row-wrap">
-                <a href="/library/books/{{ entry.url_path }}" class="item-row item-row--series" data-group-name="{{ entry.name }}">
+                <div class="item-row item-row--expandable"
+                     data-expand-path="{{ entry.url_path }}"
+                     data-expand-type="books"
+                     onclick="toggleExpand(this)"
+                     role="button" tabindex="0">
                     {% if entry.poster %}
                         <img src="{{ entry.poster }}" class="item-thumb" alt="">
                     {% else %}
@@ -153,13 +478,16 @@
                             {{ entry.book_count }} book{{ entry.book_count != 1 ? 's' : '' }}
                         {% endif %}
                     </span>
-                </a>
+                    <span class="expand-chevron">›</span>
+                </div>
                 <button class="item-menu-btn"
                     data-type="books"
                     data-group="{{ entry.name }}"
                     data-col="series"
                     data-label="{{ entry.name }}"
                     onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+            <div class="item-expand-panel"></div>
             </div>
         {% else %}
             {# Book entry (on author or series page) #}
@@ -177,7 +505,7 @@
                         {%- elseif entry.year is defined and entry.year -%}
                             {{ entry.year }}
                         {%- elseif entry.version_count is defined -%}
-                            {{ entry.version_count }} version{{ entry.version_count != 1 ? 's' : '' }}
+                            {{ entry.version_count }} format{{ entry.version_count != 1 ? 's' : '' }}
                         {%- endif -%}
                     </span>
                 </a>
@@ -191,14 +519,9 @@
     {% else %}
         <p style="color:var(--muted);">Nothing found here.</p>
     {% endfor %}
-</div>
 
-{# ── Standalone versions (virtual merge: series + same-named standalone book) ── #}
-{% if level == 'series' and standalone_book is defined and standalone_book %}
-<h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
-    Standalone Versions
-</h2>
-<div class="item-list">
+    {# Standalone book (same name as series) appended directly to the list #}
+    {% if level == 'series' and standalone_book is defined and standalone_book %}
     <div class="item-row-wrap">
         <a href="/library/books/{{ author|url_encode }}/{{ series|url_encode }}" class="item-row">
             {% if standalone_book.poster %}
@@ -215,7 +538,8 @@
             data-label="{{ series }}"
             onclick="openItemMenu(event,this)" title="Options">···</button>
     </div>
+    {% endif %}
 </div>
-{% endif %}
+{% endif %}{# end level != 'book' branch #}
 
 {% endblock %}

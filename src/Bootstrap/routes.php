@@ -7,6 +7,7 @@ use App\Controllers\LibraryController;
 use App\Controllers\MediaController;
 use App\Controllers\PeopleController;
 use App\Controllers\StreamController;
+use App\Controllers\UploadController;
 use Slim\App;
 
 return function (App $app): void {
@@ -27,6 +28,10 @@ return function (App $app): void {
     });
 
     $app->get('/stream/{path:.*}', StreamController::class . ':stream');
+    $app->get('/read/{type}/{path:.*}', LibraryController::class . ':readItem');
+    $app->get('/convert/{type}/{path:.*}', LibraryController::class . ':convertItem');
+
+    $app->post('/upload', UploadController::class . ':upload');
 
     $app->post('/scan', LibraryController::class . ':scan');
     $app->get('/scan/status', LibraryController::class . ':status');
@@ -39,6 +44,9 @@ return function (App $app): void {
     $app->get('/people', PeopleController::class . ':browse');
     $app->get('/people/{slug}', PeopleController::class . ':detail');
     $app->post('/people/{id:\d+}/refresh', PeopleController::class . ':refresh');
+
+    // Expandable row children
+    $app->get('/api/children/{type}/{path:.*}', LibraryController::class . ':getChildren');
 
     // Media CRUD + metadata search/match API
     $app->get('/api/metadata/search', MediaController::class . ':searchMetadata');

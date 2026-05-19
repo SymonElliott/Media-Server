@@ -14,8 +14,9 @@ $stateFile   = $root . '/storage/scan.json';
 $libraryPath = $_ENV['LIBRARY_PATH'] ?? '/library';
 $coversDir   = $root . '/public/covers';
 
-$validTypes = ['movies', 'shows', 'music', 'books'];
-$filterType = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
+$validTypes  = ['movies', 'shows', 'music', 'books'];
+$filterType  = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
+$filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
 
 $db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $http     = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
@@ -53,7 +54,7 @@ file_put_contents($stateFile, json_encode([
 ]), LOCK_EX);
 
 // Phase 1: index files
-$stats = $scanner->scan($filterType);
+$stats = $scanner->scan($filterType, $filterGroup);
 
 // Count items that still need metadata enrichment for phase-2 progress
 $metaQuery  = 'SELECT COUNT(*) as n FROM media WHERE metadata_fetched_at IS NULL';
@@ -61,6 +62,11 @@ $metaParams = [];
 if ($filterType) {
     $metaQuery  .= ' AND type = ?';
     $metaParams[] = $filterType;
+}
+if ($filterGroup) {
+    $groupCol   = ($filterType === 'shows') ? 'show_name' : 'author';
+    $metaQuery  .= " AND $groupCol = ?";
+    $metaParams[] = $filterGroup;
 }
 $metaTotal = (int) ($db->first($metaQuery, $metaParams)['n'] ?? 0);
 
@@ -91,7 +97,7 @@ $progress = function (string $type, int|string $itemKey, ?string $itemName = nul
 };
 
 if ($filterType) {
-    $metadata->enrichType($filterType, $progress);
+    $metadata->enrichType($filterType, $progress, $filterGroup);
 } else {
     $metadata->enrichAll($progress);
 }

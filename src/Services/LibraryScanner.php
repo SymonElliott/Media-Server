@@ -55,7 +55,7 @@ class LibraryScanner
         return $totals;
     }
 
-    public function scan(?string $onlyType = null): array
+    public function scan(?string $onlyType = null, ?string $onlyGroup = null): array
     {
         $stats = ['added' => 0, 'updated' => 0, 'skipped' => 0];
 
@@ -67,8 +67,17 @@ class LibraryScanner
 
             $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
 
+            // When a group is specified, only scan that subdirectory (e.g. one artist/author/show)
+            $scanRoot = ($onlyGroup && $type !== 'movies')
+                ? $typePath . '/' . $onlyGroup
+                : $typePath;
+
+            if (!is_dir($scanRoot)) {
+                continue;
+            }
+
             $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($typePath, RecursiveDirectoryIterator::SKIP_DOTS)
+                new RecursiveDirectoryIterator($scanRoot, RecursiveDirectoryIterator::SKIP_DOTS)
             );
 
             $scannedPaths = [];
@@ -102,12 +111,15 @@ class LibraryScanner
                 }
             }
 
-            $this->pruneStale($type, $scannedPaths);
+            // Skip stale pruning for group scans — a full scan will clean up removed files
+            if (!$onlyGroup) {
+                $this->pruneStale($type, $scannedPaths);
 
-            // After scanning books, also prune old audiobooks rows whose files
-            // no longer exist (moved here from the former audiobooks directory).
-            if ($type === 'books') {
-                $this->pruneType('audiobooks');
+                // After scanning books, also prune old audiobooks rows whose files
+                // no longer exist (moved here from the former audiobooks directory).
+                if ($type === 'books') {
+                    $this->pruneType('audiobooks');
+                }
             }
         }
 
@@ -253,11 +265,13 @@ class LibraryScanner
 
         $existing = $this->db->first('SELECT id FROM media WHERE path = ?', [$path]);
 
+        $chapters = ($ext === 'm4b') ? $this->probeChapters($path) : null;
+
         $this->db->execute(<<<SQL
             INSERT INTO media (type, path, filename, extension, size, title, author, series,
-                               book_name, book_version, show_name, season, episode, duration, series_order)
+                               book_name, book_version, show_name, season, episode, duration, series_order, chapters)
             VALUES (:type, :path, :filename, :extension, :size, :title, :author, :series,
-                    :book_name, :book_version, :show_name, :season, :episode, :duration, :series_order)
+                    :book_name, :book_version, :show_name, :season, :episode, :duration, :series_order, :chapters)
             ON CONFLICT(path) DO UPDATE SET
                 size         = excluded.size,
                 series       = excluded.series,
@@ -267,6 +281,7 @@ class LibraryScanner
                 episode      = excluded.episode,
                 duration     = excluded.duration,
                 series_order = COALESCE(excluded.series_order, series_order),
+                chapters     = COALESCE(excluded.chapters, chapters),
                 indexed_at   = CURRENT_TIMESTAMP
         SQL, [
             'type'         => $dbType,
@@ -276,6 +291,7 @@ class LibraryScanner
             'size'         => $file->getSize(),
             'duration'     => $duration,
             'series_order' => $series_order,
+            'chapters'     => $chapters !== null ? json_encode($chapters) : null,
             ...$meta,
         ]);
 
@@ -297,7 +313,7 @@ class LibraryScanner
             $bookName = $meta['book_name'] ?? null;
             if ($author && $bookName) {
                 $donor = $this->db->first(
-                    'SELECT title, description, poster, external_id, external_source, year, metadata, metadata_fetched_at
+                    'SELECT title, description, poster, external_id, external_source, year, series_order, metadata, metadata_fetched_at
                      FROM media
                      WHERE type IN ("books","audiobooks")
                        AND author = ? AND book_name = ?
@@ -351,6 +367,7 @@ class LibraryScanner
                 external_id         = COALESCE(:external_id, external_id),
                 external_source     = COALESCE(:external_source, external_source),
                 year                = COALESCE(:year, year),
+                series_order        = COALESCE(:series_order, series_order),
                 metadata            = COALESCE(:metadata, metadata),
                 metadata_fetched_at = COALESCE(:metadata_fetched_at, metadata_fetched_at)
              WHERE path = :path',
@@ -361,6 +378,7 @@ class LibraryScanner
                 'external_id'         => $donor['external_id'],
                 'external_source'     => $donor['external_source'],
                 'year'                => $donor['year'],
+                'series_order'        => $donor['series_order'] ?? null,
                 'metadata'            => $donor['metadata'],
                 'metadata_fetched_at' => $donor['metadata_fetched_at'],
                 'path'                => $path,
@@ -397,6 +415,31 @@ class LibraryScanner
         return $out !== '' && is_numeric($out) ? (int) round((float) $out) : null;
     }
 
+    private function probeChapters(string $path): ?array
+    {
+        $ffprobe = '/opt/homebrew/bin/ffprobe';
+        if (!is_executable($ffprobe)) {
+            return null;
+        }
+        $cmd = sprintf(
+            '%s -v quiet -print_format json -show_chapters %s 2>/dev/null',
+            escapeshellarg($ffprobe),
+            escapeshellarg($path)
+        );
+        $out  = (string) shell_exec($cmd);
+        $data = json_decode($out, true);
+        if (!isset($data['chapters']) || !is_array($data['chapters'])) {
+            return null;
+        }
+        $chapters = [];
+        foreach ($data['chapters'] as $ch) {
+            $start = (float) ($ch['start_time'] ?? 0);
+            $title = $ch['tags']['title'] ?? ('Chapter ' . (count($chapters) + 1));
+            $chapters[] = ['title' => $title, 'start' => $start];
+        }
+        return count($chapters) > 1 ? $chapters : null;
+    }
+
     private function extractMeta(SplFileInfo $file, string $type): array
     {
         $relative = ltrim(str_replace($this->libraryPath . '/' . $type, '', $file->getPath()), '/');
@@ -422,21 +465,87 @@ class LibraryScanner
                 'episode'      => $episode,
             ],
 
-            // New unified books structure: Author/[Series/]BookTitle/Version/files
-            // depth 3 → Author / Book / Version  (no series)
-            // depth 4 → Author / Series / Book / Version
+            // Books structure: Author / [Series /] Book / files-or-narrator-dirs
+            //
+            // depth 2 → Author / Book / file              (direct ebook or single audio)
+            // depth 3 → Author / Book / NarratorDir / chapter   (MP3 chapters, no series)
+            //        OR  Author / Series / Book / file           (series direct file)
+            // depth 4 → Author / Series / Book / NarratorDir / chapter
+            //
+            // Disambiguation at depth 3: chapter audio formats (mp3/flac/aac/ogg/wav)
+            // are always in a narrator dir under Book; everything else is Series/Book/file.
+            //
+            // Legacy depth-1 M4B (Author/BookTitle.m4b) is still accepted for compat.
             'books' => (function () use ($file, $parts, $depth): array {
-                $author      = $parts[0] ?? null;
-                $bookVersion = $depth >= 1 ? ($parts[$depth - 1] ?? null) : null;
-                $bookName    = $depth >= 2 ? ($parts[$depth - 2] ?? null) : null;
-                $series      = $depth >= 4 ? $parts[1] : null;
+                $author = $parts[0] ?? null;
+                $ext    = strtolower($file->getExtension());
+                $title  = $file->getBasename('.' . $ext);
 
+                $chapterExts = ['mp3', 'flac', 'aac', 'ogg', 'wav'];
+
+                // Legacy: M4B loose in Author dir
+                if ($depth === 1 && $ext === 'm4b') {
+                    return [
+                        'title'        => $title,
+                        'author'       => $author,
+                        'series'       => null,
+                        'book_name'    => $title,
+                        'book_version' => null,
+                        'show_name'    => null,
+                        'season'       => null,
+                        'episode'      => null,
+                    ];
+                }
+
+                // depth 2: Author / Book / file  (direct ebook or M4B)
+                if ($depth === 2) {
+                    return [
+                        'title'        => $title,
+                        'author'       => $author,
+                        'series'       => null,
+                        'book_name'    => $parts[1] ?? null,
+                        'book_version' => null,
+                        'show_name'    => null,
+                        'season'       => null,
+                        'episode'      => null,
+                    ];
+                }
+
+                // depth 3: either Author/Book/Narrator/chapter or Author/Series/Book/file
+                if ($depth === 3) {
+                    if (in_array($ext, $chapterExts, true)) {
+                        // Author / Book / Narrator / chapter.mp3
+                        return [
+                            'title'        => $title,
+                            'author'       => $author,
+                            'series'       => null,
+                            'book_name'    => $parts[1] ?? null,
+                            'book_version' => $parts[2] ?? null,
+                            'show_name'    => null,
+                            'season'       => null,
+                            'episode'      => null,
+                        ];
+                    }
+                    // Author / Series / Book / file
+                    return [
+                        'title'        => $title,
+                        'author'       => $author,
+                        'series'       => $parts[1] ?? null,
+                        'book_name'    => $parts[2] ?? null,
+                        'book_version' => null,
+                        'show_name'    => null,
+                        'season'       => null,
+                        'episode'      => null,
+                    ];
+                }
+
+                // depth 4: Author / Series / Book / Narrator / chapter.mp3
                 return [
-                    'title'        => $file->getBasename('.' . $file->getExtension()),
+                    'title'        => $title,
                     'author'       => $author,
-                    'series'       => $series,
-                    'book_name'    => $bookName,
-                    'book_version' => $bookVersion,
+                    'series'       => $parts[1] ?? null,
+                    'book_name'    => $parts[2] ?? null,
+                    'book_version' => $parts[3] ?? null,
                     'show_name'    => null,
                     'season'       => null,
                     'episode'      => null,

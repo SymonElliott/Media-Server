@@ -149,6 +149,7 @@ class Connection
             'book_version'        => 'TEXT',
             'duration'            => 'INTEGER',
             'series_order'        => 'REAL',
+            'chapters'            => 'TEXT',
         ] as $col => $type) {
             if (!in_array($col, $existing, true)) {
                 $this->pdo->exec("ALTER TABLE media ADD COLUMN $col $type");

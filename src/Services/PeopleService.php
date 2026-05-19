@@ -172,7 +172,11 @@ class PeopleService
         if (file_exists($diskPath)) return $webPath;
 
         try {
-            $this->http->get($url, ['sink' => $diskPath, 'timeout' => 15]);
+            $this->http->get($url, [
+                'sink'    => $diskPath,
+                'timeout' => 15,
+                'headers' => ['User-Agent' => 'MediaServer/1.0 (personal)'],
+            ]);
             if (!file_exists($diskPath) || filesize($diskPath) < 1024) {
                 @unlink($diskPath);
                 return null;

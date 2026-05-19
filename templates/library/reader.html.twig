@@ -1,0 +1,311 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}{{ item.title ?? item.filename }} — Read{% endblock %}
+
+{% block content %}
+<style>
+    main { padding: 0 !important; max-width: none !important; height: calc(100vh - 56px); overflow: hidden; }
+
+    .reader-wrap { display: flex; flex-direction: column; height: 100%; }
+
+    .reader-header {
+        display: flex; align-items: center; gap: 0.75rem;
+        padding: 0 1rem; height: 48px;
+        background: var(--surface);
+        border-bottom: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+    .reader-back {
+        color: var(--muted); text-decoration: none; font-size: 0.85rem;
+        display: flex; align-items: center;
+        padding: 0.3rem 0.7rem; border-radius: 4px;
+        border: 1px solid var(--border);
+        white-space: nowrap;
+        transition: color 0.15s, border-color 0.15s;
+    }
+    .reader-back:hover { color: var(--text); border-color: var(--muted); }
+    .reader-header-title {
+        flex: 1; font-size: 0.9rem; font-weight: 500;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        color: var(--text);
+    }
+    .reader-toc-btn {
+        background: none; border: 1px solid var(--border); color: var(--muted);
+        padding: 0.3rem 0.7rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+        white-space: nowrap;
+        transition: color 0.15s, border-color 0.15s;
+    }
+    .reader-toc-btn:hover, .reader-toc-btn.open { color: var(--text); border-color: var(--muted); }
+
+    .reader-body { flex: 1; display: flex; overflow: hidden; }
+
+    .reader-toc {
+        width: 260px; flex-shrink: 0;
+        background: var(--surface);
+        border-right: 1px solid var(--border);
+        overflow-y: auto;
+        padding: 0.5rem 0;
+        display: none;
+    }
+    .reader-toc.open { display: block; }
+    .reader-toc-heading {
+        font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.5px;
+        color: var(--muted); padding: 0.5rem 1rem 0.25rem; pointer-events: none;
+    }
+    .reader-toc a {
+        display: block; padding: 0.35rem 1rem;
+        color: var(--muted); text-decoration: none; font-size: 0.83rem;
+        line-height: 1.4;
+        transition: color 0.1s, background 0.1s;
+    }
+    .reader-toc a:hover { color: var(--text); background: var(--surface2); }
+    .reader-toc a.active { color: var(--accent); background: var(--surface2); }
+    .reader-toc .toc-sub { padding-left: 1.75rem; }
+    .reader-toc .toc-sub2 { padding-left: 2.75rem; }
+
+    .reader-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+
+    #viewer { flex: 1; position: relative; background: var(--surface); }
+
+    .reader-click-prev, .reader-click-next {
+        position: absolute; top: 0; bottom: 0; width: 15%;
+        cursor: pointer; z-index: 5;
+        display: flex; align-items: center;
+        opacity: 0; transition: opacity 0.2s;
+        background: transparent;
+        border: none;
+    }
+    .reader-main:hover .reader-click-prev,
+    .reader-main:hover .reader-click-next { opacity: 1; }
+    .reader-click-prev { left: 0; justify-content: flex-start; padding-left: 0.75rem; }
+    .reader-click-next { right: 0; justify-content: flex-end; padding-right: 0.75rem; }
+    .reader-click-prev svg, .reader-click-next svg { fill: var(--muted); width: 28px; height: 28px; }
+
+    .reader-footer {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 0 1.5rem; height: 44px;
+        background: var(--surface);
+        border-top: 1px solid var(--border);
+        flex-shrink: 0;
+    }
+    .reader-btn {
+        background: none; border: 1px solid var(--border); color: var(--text);
+        padding: 0.3rem 1rem; border-radius: 4px; cursor: pointer; font-size: 0.85rem;
+        transition: background 0.15s, border-color 0.15s;
+    }
+    .reader-btn:hover:not(:disabled) { background: var(--surface2); border-color: var(--muted); }
+    .reader-btn:disabled { opacity: 0.3; cursor: default; }
+    .reader-progress { font-size: 0.8rem; color: var(--muted); }
+
+    .reader-pdf-frame { flex: 1; display: block; border: none; width: 100%; }
+
+    .reader-unavailable {
+        flex: 1; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 1rem;
+        color: var(--muted); text-align: center; padding: 2rem;
+    }
+    .reader-unavailable p { max-width: 40ch; line-height: 1.6; }
+    .reader-unavailable code {
+        font-size: 0.85em; background: var(--surface2);
+        padding: 0.1em 0.4em; border-radius: 3px; color: var(--text);
+    }
+    .btn-download {
+        display: inline-block; padding: 0.5rem 1.25rem;
+        background: var(--surface2); border: 1px solid var(--border); border-radius: 6px;
+        color: var(--text); text-decoration: none; font-size: 0.9rem;
+        transition: background 0.15s;
+    }
+    .btn-download:hover { background: var(--border); }
+
+    /* Loading overlay */
+    .reader-loading {
+        position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 0.75rem;
+        background: var(--surface); z-index: 10; color: var(--muted); font-size: 0.9rem;
+    }
+    .reader-loading-spin {
+        width: 36px; height: 36px;
+        border: 3px solid var(--border); border-top-color: var(--accent);
+        border-radius: 50%; animation: rspin 0.8s linear infinite;
+    }
+    @keyframes rspin { to { transform: rotate(360deg); } }
+</style>
+
+<div class="reader-wrap">
+
+    {# ── Header ── #}
+    <div class="reader-header">
+        <a href="{{ backUrl }}" class="reader-back">← Back</a>
+        <span class="reader-header-title">{{ item.title ?? item.filename }}</span>
+        {% if ext in ['epub'] or (ext in ['mobi', 'azw', 'azw3'] and calibreAvailable) %}
+        <button class="reader-toc-btn" id="toc-btn" onclick="toggleToc()">Contents</button>
+        {% endif %}
+    </div>
+
+    {# ── Body ── #}
+    <div class="reader-body">
+
+        {% if ext in ['epub'] or (ext in ['mobi', 'azw', 'azw3'] and calibreAvailable) %}
+        <nav class="reader-toc" id="reader-toc">
+            <div class="reader-toc-heading">Contents</div>
+        </nav>
+        {% endif %}
+
+        <div class="reader-main">
+
+            {% if ext == 'pdf' %}
+                <embed class="reader-pdf-frame" src="{{ item.stream_url }}" type="application/pdf">
+
+            {% elseif ext == 'epub' %}
+                <div id="viewer">
+                    <div class="reader-loading" id="reader-loading-overlay">
+                        <div class="reader-loading-spin"></div>
+                        <span>Loading…</span>
+                    </div>
+                </div>
+                <button class="reader-click-prev" onclick="prevPage()" aria-label="Previous page">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+                </button>
+                <button class="reader-click-next" onclick="nextPage()" aria-label="Next page">
+                    <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+                </button>
+
+            {% elseif ext in ['mobi', 'azw', 'azw3'] %}
+                {% if calibreAvailable %}
+                <div id="viewer">
+                    <div class="reader-loading" id="reader-loading-overlay">
+                        <div class="reader-loading-spin"></div>
+                        <span>Loading…</span>
+                    </div>
+                </div>
+                <button class="reader-click-prev" onclick="prevPage()" aria-label="Previous page">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></svg>
+                </button>
+                <button class="reader-click-next" onclick="nextPage()" aria-label="Next page">
+                    <svg viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></svg>
+                </button>
+                {% else %}
+                <div class="reader-unavailable">
+                    <p>Reading <strong>{{ ext|upper }}</strong> files requires <code>ebook-convert</code> (Calibre) installed on the server.</p>
+                    <a href="{{ item.stream_url }}" class="btn-download" download>Download {{ ext|upper }}</a>
+                </div>
+                {% endif %}
+
+            {% else %}
+                <div class="reader-unavailable">
+                    <p>This file format cannot be displayed in the browser.</p>
+                    <a href="{{ item.stream_url }}" class="btn-download" download>Download {{ ext|upper }}</a>
+                </div>
+            {% endif %}
+
+        </div>
+    </div>
+
+    {# ── Footer nav (epub / converted mobi only) ── #}
+    {% if ext == 'epub' or (ext in ['mobi', 'azw', 'azw3'] and calibreAvailable) %}
+    <div class="reader-footer">
+        <button class="reader-btn" id="btn-prev" onclick="prevPage()" disabled>← Prev</button>
+        <span class="reader-progress" id="reader-progress">—</span>
+        <button class="reader-btn" id="btn-next" onclick="nextPage()">Next →</button>
+    </div>
+    {% endif %}
+
+</div>
+
+{% if ext == 'epub' or (ext in ['mobi', 'azw', 'azw3'] and calibreAvailable) %}
+{% block scripts %}
+<script src="/js/epub.min.js"></script>
+<script>
+(function () {
+    const bookUrl    = {{ (convertUrl ?? item.stream_url)|json_encode|raw }};
+    const storageKey = 'rpos-' + {{ item.id|json_encode|raw }};
+
+    const book      = ePub(bookUrl);
+    const rendition = book.renderTo('viewer', { flow: 'paginated', width: '100%', height: '100%' });
+
+    function hideLoading() {
+        const overlay = document.getElementById('reader-loading-overlay');
+        if (overlay) overlay.style.display = 'none';
+    }
+
+    rendition.on('rendered', hideLoading);
+
+    book.ready.catch(function () {
+        hideLoading();
+        const viewer = document.getElementById('viewer');
+        if (viewer) {
+            viewer.innerHTML = '<div class="reader-unavailable"><p>Could not load this file in the browser.</p>'
+                + '<a href="' + bookUrl + '" class="btn-download" download>Download</a></div>';
+        }
+    });
+
+    rendition.themes.register('app', {
+        body: {
+            background:  'var(--surface, #1a1a1a) !important',
+            color:       'var(--text, #e0e0e0) !important',
+            'font-family': 'system-ui, -apple-system, sans-serif !important',
+            padding:     '2rem 3rem !important',
+            'line-height': '1.7',
+        },
+        a: { color: '#5b9cf6 !important' },
+        'h1,h2,h3,h4': { color: 'var(--text, #e0e0e0) !important' },
+    });
+    rendition.themes.select('app');
+
+    const saved = localStorage.getItem(storageKey);
+    rendition.display(saved || undefined);
+
+    rendition.on('relocated', function (loc) {
+        localStorage.setItem(storageKey, loc.start.cfi);
+        const pct = Math.round((loc.start.percentage || 0) * 100);
+        const progress = document.getElementById('reader-progress');
+        if (progress) progress.textContent = pct + '%';
+        const btnPrev = document.getElementById('btn-prev');
+        const btnNext = document.getElementById('btn-next');
+        if (btnPrev) btnPrev.disabled = loc.atStart;
+        if (btnNext) btnNext.disabled = loc.atEnd;
+    });
+
+    book.loaded.navigation.then(function (nav) {
+        const tocEl = document.getElementById('reader-toc');
+        if (!tocEl || !nav.toc || !nav.toc.length) return;
+
+        function renderItems(items, level) {
+            items.forEach(function (ch) {
+                const a = document.createElement('a');
+                a.href = '#';
+                a.textContent = ch.label.trim();
+                if (level === 1) a.classList.add('toc-sub');
+                else if (level >= 2) a.classList.add('toc-sub2');
+                a.onclick = function (e) {
+                    e.preventDefault();
+                    rendition.display(ch.href);
+                    tocEl.querySelectorAll('a').forEach(el => el.classList.remove('active'));
+                    a.classList.add('active');
+                };
+                tocEl.appendChild(a);
+                if (ch.subitems && ch.subitems.length) renderItems(ch.subitems, level + 1);
+            });
+        }
+        renderItems(nav.toc, 0);
+    });
+
+    window.prevPage = function () { rendition.prev(); };
+    window.nextPage = function () { rendition.next(); };
+    window.toggleToc = function () {
+        const toc = document.getElementById('reader-toc');
+        const btn = document.getElementById('toc-btn');
+        if (toc) toc.classList.toggle('open');
+        if (btn) btn.classList.toggle('open');
+    };
+
+    document.addEventListener('keyup', function (e) {
+        if (e.key === 'ArrowLeft')  rendition.prev();
+        if (e.key === 'ArrowRight') rendition.next();
+    });
+})();
+</script>
+{% endblock %}
+{% endif %}
+
+{% endblock %}

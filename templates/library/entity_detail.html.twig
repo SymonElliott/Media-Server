@@ -1,5 +1,7 @@
 {% extends 'layout.html.twig' %}
 
+{% block scan_context %}{"type":{{ type|json_encode }},"group":{{ name|json_encode }}}{% endblock %}
+
 {% set typeLabel = {
     movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books'
 } %}
@@ -241,9 +243,56 @@
             </div>
         {% else %}
             {# Directories without a DB match (show seasons, music albums, unenriched dirs) #}
+            {% if type == 'music' and entry.is_dir %}
+            <div class="item-expandable">
+            <div class="item-row-wrap">
+                <div class="item-row item-row--expandable"
+                     data-expand-path="{{ entry.url_path }}"
+                     data-expand-type="music"
+                     onclick="toggleExpand(this)"
+                     role="button" tabindex="0">
+                    {% if entry.poster %}
+                        <img src="{{ entry.poster }}" class="item-thumb item-thumb--square" alt="">
+                    {% else %}
+                        <span class="item-icon">📁</span>
+                    {% endif %}
+                    <span class="item-name">{{ entry.name }}</span>
+                    <span class="item-meta"></span>
+                    <span class="expand-chevron">›</span>
+                </div>
+                <button class="item-menu-btn"
+                    data-type="music"
+                    data-group="{{ entry.name }}"
+                    data-col="series"
+                    data-label="{{ entry.name|e }}"
+                    onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+            <div class="item-expand-panel"></div>
+            </div>
+            {% elseif entry.is_dir and type == 'shows' %}
+            <div class="item-expandable">
+            <div class="item-row-wrap">
+                <div class="item-row item-row--expandable"
+                     data-expand-path="{{ entry.url_path }}"
+                     data-expand-type="shows"
+                     onclick="toggleExpand(this)"
+                     role="button" tabindex="0">
+                    {% if entry.poster %}
+                        <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">📁</span>
+                    {% endif %}
+                    <span class="item-name">{{ entry.title ?? entry.name }}</span>
+                    <span class="item-meta"></span>
+                    <span class="expand-chevron">›</span>
+                </div>
+            </div>
+            <div class="item-expand-panel"></div>
+            </div>
+            {% else %}
             <a href="/library/{{ type }}/{{ entry.url_path }}" class="item-row">
                 {% if entry.poster %}
-                    <img src="{{ entry.poster }}" class="item-thumb" alt="">
+                    <img src="{{ entry.poster }}" class="item-thumb{% if type == 'music' %} item-thumb--square{% endif %}" alt="">
                 {% elseif entry.is_dir %}
                     <span class="item-icon">{{ type == 'audiobooks' ? typeIcon[type] : '📁' }}</span>
                 {% else %}
@@ -254,6 +303,7 @@
                     {% if entry.is_dir and type != 'audiobooks' %}folder{% endif %}
                 </span>
             </a>
+            {% endif %}
         {% endif %}
     {% else %}
         <p style="color:var(--muted);">Nothing found in this directory.</p>

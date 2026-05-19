@@ -78,13 +78,14 @@ class MediaController
             return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
         }
 
-        // Only group-capable types; audiobooks support both book-level and series-level deletion
         $colHint = $body['col'] ?? '';
         $col = match (true) {
             $type === 'shows'                               => 'show_name',
+            $type === 'music'  && $colHint === 'series'     => 'series',
             $type === 'music'                               => 'author',
             $type === 'audiobooks' && $colHint === 'series' => 'series',
             $type === 'audiobooks'                          => 'book_name',
+            $type === 'books'  && $colHint === 'series'     => 'series',
             default                                         => null,
         };
         if (!$col) {
@@ -92,13 +93,20 @@ class MediaController
             return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
         }
 
-        $items = $this->db->query("SELECT path FROM media WHERE $col = ?", [$name]);
-        foreach ($items as $row) {
-            if (file_exists($row['path'])) {
-                unlink($row['path']);
-            }
+        // Series deletes are scoped to the specific type(s) to avoid cross-type collisions
+        if ($col === 'series' && $type === 'music') {
+            $items = $this->db->query("SELECT path FROM media WHERE series = ? AND type = 'music'", [$name]);
+            foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
+            $this->db->execute("DELETE FROM media WHERE series = ? AND type = 'music'", [$name]);
+        } elseif ($col === 'series' && in_array($type, ['books', 'audiobooks'], true)) {
+            $items = $this->db->query("SELECT path FROM media WHERE series = ? AND type IN ('books','audiobooks')", [$name]);
+            foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
+            $this->db->execute("DELETE FROM media WHERE series = ? AND type IN ('books','audiobooks')", [$name]);
+        } else {
+            $items = $this->db->query("SELECT path FROM media WHERE $col = ?", [$name]);
+            foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
+            $this->db->execute("DELETE FROM media WHERE $col = ?", [$name]);
         }
-        $this->db->execute("DELETE FROM media WHERE $col = ?", [$name]);
 
         $response->getBody()->write(json_encode(['deleted' => count($items)]));
         return $response->withHeader('Content-Type', 'application/json');

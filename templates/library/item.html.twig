@@ -7,7 +7,8 @@
 {% set videoExts = ['mp4', 'mkv', 'avi', 'mov', 'wmv', 'm4v'] %}
 {% set audioExts = ['mp3', 'flac', 'aac', 'm4a', 'm4b', 'ogg', 'wav'] %}
 
-{% set meta = item.metadata ? item.metadata|json_decode : {} %}
+{% set meta     = item.metadata ? item.metadata|json_decode : {} %}
+{% set chapters = (item.extension == 'm4b' and item.chapters) ? item.chapters|json_decode : null %}
 
 {% block title %}{{ item.title ?? item.filename }} — MediaServer{% endblock %}
 
@@ -27,11 +28,16 @@
         {% endif %}
         {% if item.book_name %}
             <span class="sep">/</span>
-            <a href="/library/books/{{ item.author|url_encode }}/{% if item.series %}{{ item.series|url_encode }}/{% endif %}{{ item.book_name|url_encode }}">{{ item.book_name }}</a>
+            {% if item.extension == 'm4b' %}
+                <span>{{ item.book_name }}</span>
+            {% else %}
+                <a href="/library/books/{{ item.author|url_encode }}/{% if item.series %}{{ item.series|url_encode }}/{% endif %}{{ item.book_name|url_encode }}">{{ item.book_name }}</a>
+            {% endif %}
         {% endif %}
         {% if item.book_version %}
+            {% set formatLabels = {'audible': 'Audiobook', 'epub': 'Ebook', 'ebook': 'Ebook'} %}
             <span class="sep">/</span>
-            <span>{{ item.book_version }}</span>
+            <span>{{ formatLabels[item.book_version|lower] ?? item.book_version }}</span>
         {% endif %}
     {% elseif item.show_name %}
         <span class="sep">/</span>
@@ -93,14 +99,15 @@
             <div class="item-hero-actions">
                 {% if item.extension in videoExts %}
                     <a href="{{ item.stream_url }}" target="_blank" rel="noopener" class="btn-play-hero">
-                        &#9654; Play
+                        &#9654; Watch
                     </a>
                 {% elseif item.extension in audioExts %}
-                    <audio class="hero-audio" controls preload="metadata" src="{{ item.stream_url }}"></audio>
-                {% elseif item.extension == 'pdf' %}
-                    <a href="{{ item.stream_url }}" target="_blank" rel="noopener" class="btn-play-hero">
-                        Open PDF
+                    <audio id="audio-player" class="hero-audio" controls preload="metadata" src="{{ item.stream_url }}"></audio>
+                {% elseif item.reader_url %}
+                    <a href="{{ item.reader_url }}" target="_blank" rel="noopener" class="btn-play-hero">
+                        Read {{ item.extension|upper }}
                     </a>
+                    <a href="{{ item.stream_url }}" class="btn-refresh" download style="text-decoration:none;">Download</a>
                 {% else %}
                     <a href="{{ item.stream_url }}" class="btn-play-hero">
                         Download {{ item.extension|upper }}
@@ -123,6 +130,25 @@
         <p class="item-description" style="font-style:italic;">
             No metadata yet — click ↻ Refresh Metadata above.
         </p>
+    {% endif %}
+
+    {# M4B Chapter list #}
+    {% if chapters and chapters|length > 0 %}
+    <div class="item-section">
+        <h2>Chapters</h2>
+        <div class="chapter-list">
+            {% for ch in chapters %}
+            {% set s = ch.start|round(0, 'floor') %}
+            {% set h = (s / 3600)|round(0, 'floor') %}
+            {% set m = ((s % 3600) / 60)|round(0, 'floor') %}
+            {% set sec = s % 60 %}
+            <button class="chapter-row" data-start="{{ ch.start }}" onclick="seekChapter(this)">
+                <span class="chapter-time">{{ h > 0 ? h ~ ':' : '' }}{{ '%02d'|format(m) }}:{{ '%02d'|format(sec) }}</span>
+                <span class="chapter-title">{{ ch.title }}</span>
+            </button>
+            {% endfor %}
+        </div>
+    </div>
     {% endif %}
 
     {# Cast / Director / Genres #}

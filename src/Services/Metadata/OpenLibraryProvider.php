@@ -42,6 +42,7 @@ class OpenLibraryProvider
                 'year'        => $r['first_publish_year'] ?? null,
                 'description' => isset($r['author_name'][0]) ? 'by ' . $r['author_name'][0] : null,
                 'poster_url'  => isset($r['cover_i']) ? self::COVER . "/{$r['cover_i']}-M.jpg" : null,
+                'series'      => $this->parseSeriesName($r['series'] ?? []),
             ], $docs);
         } catch (GuzzleException) {
             return [];
@@ -120,6 +121,17 @@ class OpenLibraryProvider
         } catch (GuzzleException) {
             return null;
         }
+    }
+
+    /** Extract the series name (without number) from an OpenLibrary series array. */
+    private function parseSeriesName(array $seriesList): ?string
+    {
+        $s = $seriesList[0] ?? null;
+        if (!$s) return null;
+        // Strip trailing " #N", ", N", " Book N" etc.
+        $name = preg_replace('/\s*(#|,\s*|\bBook\s+)\s*[\d.]+\s*$/', '', $s);
+        $name = trim((string) $name);
+        return $name !== '' ? $name : null;
     }
 
     /**

@@ -41,20 +41,26 @@ class LibraryController
 
         $params = $request->getQueryParams();
         $page   = max(1, (int) ($params['page'] ?? 1));
+        $view   = $params['view'] ?? null;
         $limit  = 60;
         $offset = ($page - 1) * $limit;
 
-        [$items, $total, $grouped] = match ($type) {
-            'shows'  => $this->browseShows($offset, $limit),
-            'music'  => $this->browseMusic($offset, $limit),
-            'books'  => $this->browseBooks($offset, $limit),
-            default  => $this->browseFlat($type, $offset, $limit),
+        [$items, $total, $grouped] = match (true) {
+            $type === 'music' && $view === 'songs'   => $this->browseSongs($offset, $limit),
+            $type === 'music' && $view === 'albums'  => $this->browseAlbums($offset, $limit),
+            $type === 'books' && $view === 'books'   => $this->browseAllBooks($offset, $limit),
+            $type === 'books' && $view === 'series'  => $this->browseSeries($offset, $limit),
+            $type === 'music'                        => $this->browseMusic($offset, $limit),
+            $type === 'books'                        => $this->browseBooks($offset, $limit),
+            $type === 'shows'                        => $this->browseShows($offset, $limit),
+            default                                  => $this->browseFlat($type, $offset, $limit),
         };
 
         $html = $this->twig->render('library/browse.html.twig', [
             'type'    => $type,
             'items'   => $items,
             'grouped' => $grouped,
+            'view'    => $view,
             'page'    => $page,
             'pages'   => (int) ceil($total / $limit),
         ]);
@@ -110,7 +116,10 @@ class LibraryController
             return $response->withStatus(404);
         }
 
+        $readerExts         = ['epub', 'pdf', 'mobi', 'azw', 'azw3'];
+        $ext                = strtolower($item['extension'] ?? '');
         $item['stream_url'] = '/stream/' . $type . '/' . $urlPath;
+        $item['reader_url'] = in_array($ext, $readerExts, true) ? '/read/' . $type . '/' . $urlPath : null;
         $item['title']      = $this->cleanFilenameTitle($item['title'] ?? null, $item['show_name'] ?? null) ?? $item['filename'];
         $item['quality']    = $this->extractQualityInfo($item['filename'] ?? '');
 
@@ -172,26 +181,28 @@ class LibraryController
             return true;
         }
 
-        // Filesystem fallback when DB is empty: a series dir contains subdirs
-        // (books), each of which contains subdirs (versions).
+        // Filesystem fallback when DB is empty.
+        // New structure: Author/Series/Book/files  — a Series dir contains only
+        // subdirs (Books); a Book dir has files directly inside (possibly alongside
+        // narrator subdirs for MP3 chapters). So: if the dir has any direct files
+        // it is a Book, not a Series.
         $path = $this->libraryPath . '/books/' . $author . '/' . $name;
         if (!is_dir($path)) {
             return false;
         }
+        $hasDirs  = false;
         foreach (scandir($path) as $entry) {
-            if ($entry === '.' || $entry === '..') {
+            if ($entry === '.' || $entry === '..' || $entry === '.DS_Store') {
                 continue;
             }
-            $sub = $path . '/' . $entry;
-            if (is_dir($sub)) {
-                foreach (scandir($sub) as $s) {
-                    if ($s !== '.' && $s !== '..' && is_dir($sub . '/' . $s)) {
-                        return true;
-                    }
-                }
+            if (is_file($path . '/' . $entry)) {
+                return false; // has direct files → it's a Book, not a Series
+            }
+            if (is_dir($path . '/' . $entry)) {
+                $hasDirs = true;
             }
         }
-        return false;
+        return $hasDirs; // only subdirs → treat as Series
     }
 
     /** /library/books/Author */
@@ -227,26 +238,52 @@ class LibraryController
             null, 'name'
         );
 
+        // Build a map of which top-level directories hold books that already belong to
+        // a named series. Such directories will be suppressed as duplicate entries —
+        // their books are already counted under the matching series entry.
+        $dirToSeries = [];
+        $pathRows = $this->db->query(
+            'SELECT SUBSTR(path, LENGTH(:base) + 2) as sub, series
+             FROM media
+             WHERE type IN ("books","audiobooks") AND author = :author
+               AND path LIKE :like AND series IS NOT NULL',
+            ['base' => $dirPath, 'author' => $author, 'like' => $dirPath . '/%']
+        );
+        foreach ($pathRows as $row) {
+            $topDir = explode('/', $row['sub'])[0];
+            if (!isset($dirToSeries[$topDir])) {
+                $dirToSeries[$topDir] = $row['series'];
+            }
+        }
+
         foreach ($entries as &$entry) {
             if (!$entry['is_dir']) {
                 continue;
             }
             $name = $entry['name'];
             if (isset($series[$name])) {
-                // Series wins; if there's also a standalone book with this name, merge counts
+                // This directory IS the series directory.
                 $entry['poster']     = $series[$name]['poster'];
                 $entry['item_type']  = 'series';
                 $entry['book_count'] = $series[$name]['book_count'];
                 if (isset($books[$name])) {
-                    $entry['has_standalone'] = true; // flag for template hint
+                    $entry['has_standalone'] = true;
                 }
             } elseif (isset($books[$name])) {
                 $entry['poster']        = $books[$name]['poster'];
                 $entry['item_type']     = 'book';
                 $entry['version_count'] = $books[$name]['version_count'];
             }
+            // Mark directories that hold series books stored outside the series dir.
+            // These will be filtered out below to avoid showing them as orphan entries.
+            if (!isset($entry['item_type']) && isset($dirToSeries[$name]) && isset($series[$dirToSeries[$name]])) {
+                $entry['_suppress'] = true;
+            }
         }
         unset($entry);
+
+        // Remove orphan book directories whose books belong to an already-listed series.
+        $entries = array_values(array_filter($entries, fn($e) => empty($e['_suppress'])));
 
         $html = $this->twig->render('library/books_detail.html.twig', [
             'type'    => 'books',
@@ -294,6 +331,46 @@ class LibraryController
         }
         unset($entry);
 
+        // Include DB books that share this series name but live outside the series directory.
+        // This handles the case where books are stored as Author/BookName/ but tagged series=X.
+        $fsNames        = array_flip(array_column($entries, 'name'));
+        $libraryBase    = $this->libraryPath . '/books/';
+        $orphanPaths    = $this->db->query(
+            'SELECT book_name, MIN(path) as sample_path
+             FROM media
+             WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
+               AND book_name IS NOT NULL AND path NOT LIKE ?
+             GROUP BY book_name',
+            [$author, $seriesName, $dirPath . '/%']
+        );
+        foreach ($orphanPaths as $orphan) {
+            $bookName = $orphan['book_name'];
+            if (isset($fsNames[$bookName])) {
+                continue; // already present from filesystem scan
+            }
+            $b = $bookRows[$bookName] ?? null;
+            if (!$b) {
+                continue;
+            }
+            $filePath = $orphan['sample_path'];
+            if (!str_starts_with($filePath, $libraryBase)) {
+                continue;
+            }
+            $rel         = substr($filePath, strlen($libraryBase));
+            $pathParts   = explode('/', $rel);
+            $bookUrlPath = implode('/', array_slice($pathParts, 0, 2)); // Author/BookDir
+
+            $entries[] = [
+                'name'         => $bookName,
+                'is_dir'       => true,
+                'url_path'     => $bookUrlPath,
+                'poster'       => $b['poster'],
+                'series_order' => $b['series_order'],
+                'year'         => $b['year'],
+                'size'         => null,
+            ];
+        }
+
         usort($entries, function (array $a, array $b): int {
             $ao = isset($a['series_order']) && $a['series_order'] !== null ? (float) $a['series_order'] : null;
             $bo = isset($b['series_order']) && $b['series_order'] !== null ? (float) $b['series_order'] : null;
@@ -308,9 +385,7 @@ class LibraryController
             [$seriesName, $author]
         );
 
-        // Virtual merge: if a standalone book shares the series name, include its version dirs.
-        // They appear as a separate section labelled "Standalone Versions".
-        $standaloneDir  = $this->libraryPath . '/books/' . rawurlencode($author) . '/' . rawurlencode($seriesName);
+        // Include a standalone book that shares the series name (series IS NULL, book_name = series).
         $standaloneBook = $this->db->first(
             'SELECT * FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ? AND series IS NULL LIMIT 1',
             [$author, $seriesName]
@@ -339,8 +414,8 @@ class LibraryController
         string $bookName,
         string $urlPath
     ): Response {
-        $dirPath = $this->libraryPath . '/books/' . $urlPath;
-        $entries = $this->dirEntries($dirPath, $urlPath);
+        $dirPath   = $this->libraryPath . '/books/' . $urlPath;
+        $rawScan   = $this->dirEntries($dirPath, $urlPath);
 
         // Pull book metadata from DB (any version will have the same enriched data)
         $entity = $this->db->first(
@@ -349,26 +424,85 @@ class LibraryController
             [$author, $bookName]
         );
 
-        // Enrich version directory entries with file count + format type
-        foreach ($entries as &$entry) {
-            if (!$entry['is_dir']) {
-                continue;
-            }
-            $versionPath = $dirPath . '/' . $entry['name'];
-            $files = array_filter(
-                array_diff(scandir($versionPath), ['.', '..', '.DS_Store']),
-                fn($f) => is_file($versionPath . '/' . $f)
-            );
-            $entry['file_count'] = count($files);
-            $firstFile = reset($files);
-            if ($firstFile) {
-                $ext = strtolower(pathinfo($firstFile, PATHINFO_EXTENSION));
-                $entry['version_type'] = in_array($ext, ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'], true)
-                    ? 'audio'
-                    : 'ebook';
+        // Batch-load DB rows for all files under this book directory
+        $dbRows = $this->db->query(
+            'SELECT id, path, title FROM media WHERE type IN ("books","audiobooks") AND path LIKE ?',
+            [$dirPath . '/%']
+        );
+        $dbByPath = [];
+        foreach ($dbRows as $row) {
+            $dbByPath[$row['path']] = $row;
+        }
+
+        $audioExts = ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'];
+        $ebookExts = ['epub', 'pdf', 'mobi', 'azw', 'azw3', 'cbr', 'cbz'];
+
+        $entries = [];
+        foreach ($rawScan as $raw) {
+            if ($raw['is_dir']) {
+                // Narrator / chapter folder — must contain audio files to count
+                $subPath  = $dirPath . '/' . $raw['name'];
+                $subFiles = array_values(array_filter(
+                    array_diff(scandir($subPath), ['.', '..', '.DS_Store']),
+                    fn($f) => is_file($subPath . '/' . $f)
+                ));
+                if (empty($subFiles)) {
+                    continue;
+                }
+                $firstExt = strtolower(pathinfo($subFiles[0], PATHINFO_EXTENSION));
+                if (!in_array($firstExt, $audioExts, true)) {
+                    continue; // not an audio narrator dir
+                }
+                $firstDbRow = null;
+                foreach ($subFiles as $f) {
+                    $row = $dbByPath[$subPath . '/' . $f] ?? null;
+                    if ($row) { $firstDbRow = $row; break; }
+                }
+                $entries[] = [
+                    'name'         => $raw['name'],
+                    'is_dir'       => true,
+                    'version_type' => 'audio',
+                    'url_path'     => $raw['url_path'],
+                    'file_count'   => count($subFiles),
+                    'first_db_id'  => $firstDbRow['id'] ?? null,
+                    'files'        => [],
+                ];
+            } else {
+                // Direct file — classify by extension
+                $ext = strtolower(pathinfo($raw['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, $ebookExts, true)) {
+                    $dbRow   = $dbByPath[$dirPath . '/' . $raw['name']] ?? null;
+                    $entries[] = [
+                        'name'         => $raw['name'],
+                        'is_dir'       => false,
+                        'version_type' => 'ebook',
+                        'url_path'     => $raw['url_path'],
+                        'file_count'   => 1,
+                        'first_db_id'  => $dbRow['id'] ?? null,
+                        'files'        => [[
+                            'name'      => $raw['name'],
+                            'stem'      => $dbRow['title'] ?? pathinfo($raw['name'], PATHINFO_FILENAME),
+                            'extension' => $ext,
+                            'url_path'  => $raw['url_path'],
+                            'db_id'     => $dbRow['id'] ?? null,
+                        ]],
+                    ];
+                } elseif (in_array($ext, $audioExts, true)) {
+                    $dbRow   = $dbByPath[$dirPath . '/' . $raw['name']] ?? null;
+                    $entries[] = [
+                        'name'         => $dbRow['title'] ?? pathinfo($raw['name'], PATHINFO_FILENAME),
+                        'is_dir'       => false,
+                        'version_type' => 'audio',
+                        'url_path'     => $raw['url_path'],
+                        'file_count'   => 1,
+                        'first_db_id'  => $dbRow['id'] ?? null,
+                        'files'        => [],
+                        'extension'    => $ext,
+                    ];
+                }
+                // Skip unrecognised extensions (cover images, etc.)
             }
         }
-        unset($entry);
 
         $html = $this->twig->render('library/books_detail.html.twig', [
             'type'    => 'books',
@@ -418,7 +552,11 @@ class LibraryController
                 return $response->withStatus(404);
             }
 
-            $item['stream_url'] = '/stream/books/' . $urlPath . '/' . $fileEntry['name'];
+            $readerExts         = ['epub', 'pdf', 'mobi', 'azw', 'azw3'];
+            $fileExt            = strtolower($item['extension'] ?? '');
+            $fileUrlPath        = $urlPath . '/' . $fileEntry['name'];
+            $item['stream_url'] = '/stream/books/' . $fileUrlPath;
+            $item['reader_url'] = in_array($fileExt, $readerExts, true) ? '/read/books/' . $fileUrlPath : null;
             $item['title']      = $item['title'] ?? $bookName;
             $item['quality']    = $this->extractQualityInfo($item['filename'] ?? '');
 
@@ -463,7 +601,10 @@ class LibraryController
             return $response->withStatus(404);
         }
 
+        $readerExts         = ['epub', 'pdf', 'mobi', 'azw', 'azw3'];
+        $fileExt            = strtolower($item['extension'] ?? '');
         $item['stream_url'] = '/stream/books/' . $urlPath;
+        $item['reader_url'] = in_array($fileExt, $readerExts, true) ? '/read/books/' . $urlPath : null;
         $item['title']      = $item['title'] ?? $item['filename'];
         $item['quality']    = $this->extractQualityInfo($item['filename'] ?? '');
 
@@ -526,12 +667,24 @@ class LibraryController
         if ($filterType === 'audiobooks') {
             $filterType = 'books';
         }
+        $filterGroup = ($filterType && isset($data['group']) && is_string($data['group']) && $data['group'] !== '')
+            ? trim($data['group'])
+            : null;
 
         $php    = PHP_BINARY;
         $script = realpath(dirname(__DIR__, 2) . '/bin/scan.php');
-        $cmd    = $filterType
-            ? sprintf('%s %s %s > /dev/null 2>&1 &', escapeshellarg($php), escapeshellarg($script), escapeshellarg($filterType))
-            : sprintf('%s %s > /dev/null 2>&1 &', escapeshellarg($php), escapeshellarg($script));
+        $cmd = match (true) {
+            $filterGroup !== null => sprintf(
+                '%s %s %s %s > /dev/null 2>&1 &',
+                escapeshellarg($php), escapeshellarg($script),
+                escapeshellarg($filterType), escapeshellarg($filterGroup)
+            ),
+            $filterType !== null  => sprintf(
+                '%s %s %s > /dev/null 2>&1 &',
+                escapeshellarg($php), escapeshellarg($script), escapeshellarg($filterType)
+            ),
+            default               => sprintf('%s %s > /dev/null 2>&1 &', escapeshellarg($php), escapeshellarg($script)),
+        };
         exec($cmd);
 
         $response->getBody()->write(json_encode(['started' => true]));
@@ -670,6 +823,26 @@ class LibraryController
         }
         unset($entry);
 
+        // For music artists, attach album art from album_meta for each album directory
+        if ($type === 'music') {
+            $albumDirs = array_filter($entries, fn($e) => $e['is_dir']);
+            if ($albumDirs) {
+                $albumNames   = array_column($albumDirs, 'name');
+                $placeholders = implode(',', array_fill(0, count($albumNames), '?'));
+                $albumMetas   = $this->db->query(
+                    "SELECT album, poster FROM album_meta WHERE artist = ? AND album IN ($placeholders) AND poster IS NOT NULL",
+                    array_merge([$groupKey], $albumNames)
+                );
+                $posterMap = array_column($albumMetas, 'poster', 'album');
+                foreach ($entries as &$entry) {
+                    if ($entry['is_dir'] && isset($posterMap[$entry['name']])) {
+                        $entry['poster'] = $posterMap[$entry['name']];
+                    }
+                }
+                unset($entry);
+            }
+        }
+
         // For music artists, prefer the artist photo from the people table
         $person = $type === 'music'
             ? $this->db->first(
@@ -747,6 +920,119 @@ class LibraryController
 
         $referer = $request->getHeaderLine('Referer');
         return $response->withHeader('Location', $referer ?: '/')->withStatus(302);
+    }
+
+    // ── Expandable children API ──────────────────────────────────────────────
+
+    public function getChildren(Request $request, Response $response, array $args): Response
+    {
+        $type  = $args['type'];
+        $path  = $args['path'] ?? '';
+        $parts = array_values(array_filter(explode('/', $path)));
+
+        $data = match ($type) {
+            'shows' => $this->showSeasonChildren($parts),
+            'music' => $this->musicAlbumChildren($parts),
+            'books' => $this->booksSeriesChildren($parts),
+            default => null,
+        };
+
+        if ($data === null) {
+            return $response->withStatus(404);
+        }
+
+        $response->getBody()->write(json_encode($data));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    private function showSeasonChildren(array $parts): array
+    {
+        $showName  = $parts[0] ?? '';
+        $seasonDir = $parts[1] ?? '';
+        $season    = null;
+        if (preg_match('/(\d+)/', $seasonDir, $m)) {
+            $season = (int) $m[1];
+        }
+        if (!$showName || $season === null) {
+            return [];
+        }
+
+        $prefix   = $this->libraryPath . '/shows/';
+        $episodes = $this->db->query(
+            'SELECT id, title, episode, path FROM media
+             WHERE type = "shows" AND show_name = ? AND season = ?
+             ORDER BY episode',
+            [$showName, $season]
+        );
+
+        foreach ($episodes as &$ep) {
+            $ep['url_path'] = ltrim(str_replace($prefix, '', $ep['path']), '/');
+        }
+        unset($ep);
+
+        return array_values($episodes);
+    }
+
+    private function musicAlbumChildren(array $parts): array
+    {
+        $artist = $parts[0] ?? '';
+        $album  = $parts[1] ?? '';
+        if (!$artist || !$album) {
+            return [];
+        }
+
+        $prefix = $this->libraryPath . '/music/';
+        $tracks = $this->db->query(
+            'SELECT id, title, series_order, path, extension FROM media
+             WHERE type = "music" AND author = ? AND series = ?
+             ORDER BY series_order, title',
+            [$artist, $album]
+        );
+
+        foreach ($tracks as &$track) {
+            $track['url_path'] = ltrim(str_replace($prefix, '', $track['path']), '/');
+        }
+        unset($track);
+
+        return array_values($tracks);
+    }
+
+    private function booksSeriesChildren(array $parts): array
+    {
+        $author     = $parts[0] ?? '';
+        $seriesName = $parts[1] ?? '';
+        if (!$author || !$seriesName) {
+            return [];
+        }
+
+        $libraryBase   = $this->libraryPath . '/books/';
+        $seriesDirPath = $libraryBase . $author . '/' . $seriesName;
+
+        $books = $this->db->query(
+            'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
+                    MIN(series_order) as series_order, MIN(path) as sample_path
+             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
+               AND book_name IS NOT NULL
+             GROUP BY book_name ORDER BY series_order ASC NULLS LAST, book_name ASC',
+            [$author, $seriesName]
+        );
+
+        foreach ($books as &$book) {
+            $samplePath = $book['sample_path'] ?? '';
+            unset($book['sample_path']);
+            if (!$samplePath || !str_starts_with($samplePath, $libraryBase)) {
+                $book['url_path'] = $author . '/' . $book['name'];
+                continue;
+            }
+            $relPath   = substr($samplePath, strlen($libraryBase));
+            $pathParts = explode('/', $relPath);
+            $book['url_path'] = str_starts_with($samplePath, $seriesDirPath . '/')
+                ? implode('/', array_slice($pathParts, 0, 3))
+                : implode('/', array_slice($pathParts, 0, 2));
+        }
+        unset($book);
+
+        return array_values($books);
     }
 
     // ── Browse helpers ───────────────────────────────────────────────────────
@@ -846,6 +1132,110 @@ class LibraryController
             'SELECT COUNT(DISTINCT author) as n FROM media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
         );
         return [$items, (int) ($total['n'] ?? 0), true];
+    }
+
+    private function browseSongs(int $offset, int $limit): array
+    {
+        $prefix = $this->libraryPath . '/music/';
+        $items  = $this->db->query(
+            'SELECT m.id, m.title, m.author, m.series as album, m.year, m.duration, m.path, m.extension,
+                    m.metadata_fetched_at, am.poster
+             FROM media m
+             LEFT JOIN album_meta am ON am.album = m.series AND am.artist = m.author
+             WHERE m.type = "music"
+             ORDER BY m.title ASC LIMIT ? OFFSET ?',
+            [$limit, $offset]
+        );
+        foreach ($items as &$item) {
+            $item['relative_path'] = str_replace($prefix, '', $item['path']);
+        }
+        unset($item);
+        $total = $this->db->first('SELECT COUNT(*) as n FROM media WHERE type = "music"');
+        return [$items, (int) ($total['n'] ?? 0), false];
+    }
+
+    private function browseAlbums(int $offset, int $limit): array
+    {
+        $items = $this->db->query(
+            'SELECT m.series as name, m.author,
+                    am.poster, am.year,
+                    COUNT(DISTINCT m.id) as track_count
+             FROM media m
+             LEFT JOIN album_meta am ON am.album = m.series AND am.artist = m.author
+             WHERE m.type = \'music\' AND m.series IS NOT NULL AND m.author IS NOT NULL
+             GROUP BY m.author, m.series
+             ORDER BY m.series ASC
+             LIMIT ? OFFSET ?',
+            [$limit, $offset]
+        );
+        foreach ($items as &$item) {
+            $item['url_path'] = rawurlencode($item['author']) . '/' . rawurlencode($item['name']);
+        }
+        unset($item);
+        $total = $this->db->first(
+            'SELECT COUNT(*) as n FROM (
+                SELECT DISTINCT author, series FROM media
+                WHERE type = \'music\' AND series IS NOT NULL AND author IS NOT NULL
+             )'
+        );
+        return [$items, (int) ($total['n'] ?? 0), true];
+    }
+
+    private function browseSeries(int $offset, int $limit): array
+    {
+        $items = $this->db->query(
+            'SELECT series as name, MAX(author) as author,
+                    MAX(poster) as poster, MAX(year) as year,
+                    COUNT(DISTINCT id) as item_count
+             FROM media
+             WHERE type IN (\'books\', \'audiobooks\') AND series IS NOT NULL AND author IS NOT NULL
+             GROUP BY author, series
+             ORDER BY series ASC
+             LIMIT ? OFFSET ?',
+            [$limit, $offset]
+        );
+        foreach ($items as &$item) {
+            $item['url_path'] = rawurlencode($item['author']) . '/' . rawurlencode($item['name']);
+        }
+        unset($item);
+        $total = $this->db->first(
+            'SELECT COUNT(*) as n FROM (
+                SELECT DISTINCT author, series FROM media
+                WHERE type IN (\'books\', \'audiobooks\') AND series IS NOT NULL AND author IS NOT NULL
+             )'
+        );
+        return [$items, (int) ($total['n'] ?? 0), true];
+    }
+
+    private function browseAllBooks(int $offset, int $limit): array
+    {
+        $items = $this->db->query(
+            'SELECT book_name as name,
+                    MAX(author) as author,
+                    MAX(series) as series,
+                    MAX(poster) as poster,
+                    MAX(year) as year,
+                    MAX(CASE WHEN type = \'audiobooks\' THEN 1 ELSE 0 END) as has_audio,
+                    MAX(CASE WHEN type = \'books\'      THEN 1 ELSE 0 END) as has_ebook
+             FROM media
+             WHERE type IN ("books","audiobooks") AND book_name IS NOT NULL AND author IS NOT NULL
+             GROUP BY author, book_name
+             ORDER BY book_name ASC, author ASC
+             LIMIT ? OFFSET ?',
+            [$limit, $offset]
+        );
+        foreach ($items as &$item) {
+            $seriesSeg    = $item['series'] ? rawurlencode($item['series']) . '/' : '';
+            $item['url_path'] = rawurlencode($item['author']) . '/' . $seriesSeg . rawurlencode($item['name']);
+        }
+        unset($item);
+        $total = $this->db->first(
+            'SELECT COUNT(*) as n FROM (
+                SELECT DISTINCT author, book_name FROM media
+                WHERE type IN ("books","audiobooks") AND book_name IS NOT NULL AND author IS NOT NULL
+             )'
+        );
+        return [$items, (int) ($total['n'] ?? 0), false];
     }
 
     private function pruneGroupsByDirectory(string $type, string $col): void
@@ -1011,6 +1401,125 @@ class LibraryController
         }
 
         return $info;
+    }
+
+    // ── Ebook reader ─────────────────────────────────────────────────────────
+
+    public function readItem(Request $request, Response $response, array $args): Response
+    {
+        $type    = $args['type'] ?? 'books';
+        $urlPath = $args['path'] ?? '';
+
+        if ($type !== 'books') {
+            return $response->withStatus(404);
+        }
+
+        $filePath = realpath($this->libraryPath . '/books/' . $urlPath);
+
+        if (!$filePath || !is_file($filePath)) {
+            return $response->withStatus(404);
+        }
+
+        $ext  = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+        $item = $this->db->first('SELECT * FROM media WHERE path = ?', [$filePath]);
+
+        if (!$item || !in_array($ext, ['epub', 'pdf', 'mobi', 'azw', 'azw3'], true)) {
+            return $response->withStatus(404);
+        }
+
+        $item['stream_url'] = '/stream/books/' . $urlPath;
+
+        $calibreAvailable = false;
+        $convertUrl       = null;
+        if (in_array($ext, ['mobi', 'azw', 'azw3'], true)) {
+            $calibre = $this->findCalibre();
+            if ($calibre) {
+                $calibreAvailable = true;
+                $convertUrl       = '/convert/books/' . $urlPath;
+            }
+        }
+
+        // Back link: one level up from the file's URL path
+        $parts   = array_filter(explode('/', $urlPath));
+        array_pop($parts);
+        $backUrl = '/library/books/' . implode('/', $parts);
+
+        $html = $this->twig->render('library/reader.html.twig', [
+            'item'             => $item,
+            'ext'              => $ext,
+            'backUrl'          => $backUrl,
+            'calibreAvailable' => $calibreAvailable,
+            'convertUrl'       => $convertUrl,
+        ]);
+
+        $response->getBody()->write($html);
+        return $response->withHeader('Content-Type', 'text/html');
+    }
+
+    public function convertItem(Request $request, Response $response, array $args): Response
+    {
+        $type    = $args['type'] ?? 'books';
+        $urlPath = $args['path'] ?? '';
+
+        if ($type !== 'books') {
+            return $response->withStatus(404);
+        }
+
+        $filePath = realpath($this->libraryPath . '/books/' . $urlPath);
+        if (!$filePath || !is_file($filePath)) {
+            return $response->withStatus(404);
+        }
+
+        $ext = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
+        if (!in_array($ext, ['mobi', 'azw', 'azw3'], true)) {
+            return $response->withStatus(400);
+        }
+
+        $calibre = $this->findCalibre();
+        if (!$calibre) {
+            $response->getBody()->write(json_encode(['error' => 'ebook-convert not found']));
+            return $response->withStatus(501)->withHeader('Content-Type', 'application/json');
+        }
+
+        $cacheDir  = dirname(__DIR__, 2) . '/storage/converted';
+        if (!is_dir($cacheDir)) {
+            mkdir($cacheDir, 0755, true);
+        }
+        $cacheFile = $cacheDir . '/' . md5($filePath) . '.epub';
+
+        if (!file_exists($cacheFile)) {
+            $cmd = sprintf('%s %s %s 2>/dev/null',
+                escapeshellarg($calibre),
+                escapeshellarg($filePath),
+                escapeshellarg($cacheFile)
+            );
+            exec($cmd, $out, $code);
+            if ($code !== 0 || !file_exists($cacheFile)) {
+                $response->getBody()->write(json_encode(['error' => 'Conversion failed']));
+                return $response->withStatus(500)->withHeader('Content-Type', 'application/json');
+            }
+        }
+
+        $size = filesize($cacheFile);
+        $fh   = fopen($cacheFile, 'rb');
+        $response->getBody()->write(stream_get_contents($fh));
+        fclose($fh);
+
+        return $response
+            ->withHeader('Content-Type', 'application/epub+zip')
+            ->withHeader('Content-Length', (string) $size)
+            ->withHeader('Content-Disposition', 'inline; filename="' . basename($cacheFile) . '"');
+    }
+
+    private function findCalibre(): ?string
+    {
+        foreach (['/usr/bin/ebook-convert', '/usr/local/bin/ebook-convert', '/opt/homebrew/bin/ebook-convert'] as $path) {
+            if (is_executable($path)) {
+                return $path;
+            }
+        }
+        $which = trim((string) shell_exec('which ebook-convert 2>/dev/null'));
+        return ($which && is_executable($which)) ? $which : null;
     }
 
     private function dirEntries(string $dirPath, string $urlPath): array

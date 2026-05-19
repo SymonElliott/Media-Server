@@ -92,14 +92,14 @@ class MetadataService
     }
 
     /** Enrich all items of a specific type that haven't been fetched yet. */
-    public function enrichType(string $type, ?callable $onProgress = null): void
+    public function enrichType(string $type, ?callable $onProgress = null, ?string $filterGroup = null): void
     {
         match ($type) {
             'movies'     => $this->enrichMovies($onProgress),
-            'shows'      => $this->enrichShows($onProgress),
-            'music'      => $this->enrichMusic($onProgress),
-            'books'      => $this->enrichBooksOfType('books', $onProgress),
-            'audiobooks' => $this->enrichAudiobooks($onProgress),
+            'shows'      => $this->enrichShows($onProgress, $filterGroup),
+            'music'      => $this->enrichMusic($onProgress, $filterGroup),
+            'books'      => $this->enrichBooksOfType('books', $onProgress, $filterGroup),
+            'audiobooks' => $this->enrichAudiobooks($onProgress, $filterGroup),
             default      => null,
         };
     }
@@ -163,8 +163,11 @@ class MetadataService
         }
     }
 
-    private function enrichShows(?callable $onProgress): void
+    private function enrichShows(?callable $onProgress, ?string $filterGroup = null): void
     {
+        $groupFilter = $filterGroup ? ' AND show_name = ?' : '';
+        $groupParams = $filterGroup ? [$filterGroup] : [];
+
         // Pass 1: shows with no metadata at all
         $newShows = $this->db->query(
             'SELECT DISTINCT show_name FROM media
@@ -172,7 +175,8 @@ class MetadataService
                AND show_name NOT IN (
                    SELECT DISTINCT show_name FROM media
                    WHERE type = "shows" AND metadata_fetched_at IS NOT NULL
-               )'
+               )' . $groupFilter,
+            $groupParams
         );
         foreach ($newShows as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
@@ -184,8 +188,9 @@ class MetadataService
         $needsSeasons = $this->db->query(
             'SELECT DISTINCT show_name, MAX(external_id) as tmdb_id FROM media
              WHERE type = "shows" AND external_source = "tmdb" AND external_id IS NOT NULL
-               AND (metadata IS NULL OR metadata NOT LIKE "%season_posters%")
-             GROUP BY show_name'
+               AND (metadata IS NULL OR metadata NOT LIKE "%season_posters%")' . $groupFilter . '
+             GROUP BY show_name',
+            $groupParams
         );
         foreach ($needsSeasons as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
@@ -193,11 +198,15 @@ class MetadataService
         }
     }
 
-    private function enrichMusic(?callable $onProgress): void
+    private function enrichMusic(?callable $onProgress, ?string $filterGroup = null): void
     {
+        $groupFilter = $filterGroup ? ' AND author = ?' : '';
+        $groupParams = $filterGroup ? [$filterGroup] : [];
+
         $albums = $this->db->query(
             'SELECT DISTINCT author, series FROM media
-             WHERE type = "music" AND author IS NOT NULL AND metadata_fetched_at IS NULL'
+             WHERE type = "music" AND author IS NOT NULL AND metadata_fetched_at IS NULL' . $groupFilter,
+            $groupParams
         );
         foreach ($albums as $album) {
             if ($onProgress) $onProgress('music', $album['author'], $album['author']);
@@ -211,15 +220,19 @@ class MetadataService
         $this->enrichBooksOfType('books', $onProgress);
     }
 
-    private function enrichBooksOfType(?string $type, ?callable $onProgress): void
+    private function enrichBooksOfType(?string $type, ?callable $onProgress, ?string $filterGroup = null): void
     {
+        $groupFilter = $filterGroup ? ' AND author = ?' : '';
+        $groupParams = $filterGroup ? [$filterGroup] : [];
+
         $items = $type
             ? $this->db->query(
-                'SELECT * FROM media WHERE type = ? AND metadata_fetched_at IS NULL',
-                [$type]
+                'SELECT * FROM media WHERE type = ? AND metadata_fetched_at IS NULL' . $groupFilter,
+                array_merge([$type], $groupParams)
               )
             : $this->db->query(
-                'SELECT * FROM media WHERE type = "books" AND metadata_fetched_at IS NULL'
+                'SELECT * FROM media WHERE type = "books" AND metadata_fetched_at IS NULL' . $groupFilter,
+                $groupParams
               );
         foreach ($items as $item) {
             if ($onProgress) $onProgress($item['type'], $item['id'], $item['title'] ?? $item['filename'] ?? '');
@@ -228,14 +241,18 @@ class MetadataService
         }
     }
 
-    private function enrichAudiobooks(?callable $onProgress): void
+    private function enrichAudiobooks(?callable $onProgress, ?string $filterGroup = null): void
     {
+        $groupFilter = $filterGroup ? ' AND author = ?' : '';
+        $groupParams = $filterGroup ? [$filterGroup] : [];
+
         // Group by book so we do one lookup per book, not one per chapter file.
         // Include a sample path so we can extract the clean directory-based title.
         $books = $this->db->query(
             'SELECT book_name, author, series, MIN(path) as sample_path FROM media
-             WHERE type = "audiobooks" AND book_name IS NOT NULL AND metadata_fetched_at IS NULL
-             GROUP BY book_name, author'
+             WHERE type = "audiobooks" AND book_name IS NOT NULL AND metadata_fetched_at IS NULL' . $groupFilter . '
+             GROUP BY book_name, author',
+            $groupParams
         );
         foreach ($books as $book) {
             $cleanTitle = $this->cleanAudiobookTitle($book['book_name'], $book['sample_path'], $book['author']);
@@ -250,7 +267,8 @@ class MetadataService
         // After all books are enriched, enrich any series that have no series_meta yet.
         $seriesList = $this->db->query(
             'SELECT DISTINCT series, author FROM media
-             WHERE type = "audiobooks" AND series IS NOT NULL AND book_name IS NOT NULL'
+             WHERE type = "audiobooks" AND series IS NOT NULL AND book_name IS NOT NULL' . $groupFilter,
+            $groupParams
         );
         foreach ($seriesList as $row) {
             $existing = $this->db->first(

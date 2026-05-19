@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Controllers\LibraryController;
 use App\Controllers\MediaController;
 use App\Controllers\PeopleController;
+use App\Controllers\UploadController;
 use App\Services\PeopleService;
 use App\Database\Connection;
 use App\Services\LibraryScanner;
@@ -108,6 +109,14 @@ return [
         return new MediaController(
             $c->get(Connection::class),
             $c->get(MetadataService::class)
+        );
+    },
+
+    UploadController::class => function ($c) {
+        return new UploadController(
+            $c->get(MetadataService::class),
+            $c->get(LibraryScanner::class),
+            $_ENV['LIBRARY_PATH'] ?? '/library'
         );
     },
 

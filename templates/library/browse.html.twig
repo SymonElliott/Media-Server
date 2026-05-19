@@ -17,8 +17,26 @@
     <span>{{ typeLabel[type] }}</span>
 </div>
 
+{% set tabs = {
+    music: { artists: 'Artists', albums: 'Albums', songs: 'Songs' },
+    books: { authors: 'Authors', series: 'Series', books: 'Books' }
+} %}
+{% set currentView = view ?? (type == 'music' ? 'artists' : (type == 'books' ? 'authors' : null)) %}
+{% set menuCol = (type == 'music' and currentView == 'albums') ? 'series'
+              : ((type == 'books' and currentView == 'series') ? 'series' : null) %}
+
 <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.5rem;">
-    <h1 style="margin-bottom:0;">{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
+    <div style="display:flex; align-items:center; gap:1rem;">
+        <h1 style="margin-bottom:0;">{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
+        {% if tabs[type] is defined %}
+        <div class="browse-tabs">
+            {% for tabKey, tabLabel in tabs[type] %}
+                <a href="/library/{{ type }}?view={{ tabKey }}"
+                   class="browse-tab{% if currentView == tabKey %} active{% endif %}">{{ tabLabel }}</a>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </div>
     <div style="display:flex; gap:0.5rem; align-items:center;">
         <button class="btn-view-toggle" id="btn-grid" onclick="setView('grid')" title="Grid view">⊞</button>
         <button class="btn-view-toggle" id="btn-list" onclick="setView('list')" title="List view">☰</button>
@@ -42,6 +60,8 @@
                 {% set metaLabel = count ~ ' episode' ~ (count != 1 ? 's' : '') %}
             {% elseif type == 'music' %}
                 {% set metaLabel = count ~ ' track' ~ (count != 1 ? 's' : '') %}
+            {% elseif type == 'books' %}
+                {% set metaLabel = count ~ ' book' ~ (count != 1 ? 's' : '') %}
             {% else %}
                 {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
             {% endif %}
@@ -49,7 +69,7 @@
             <div class="item-row-wrap">
                 <a href="{{ href }}" class="item-row{% if needsMeta %} meta-pending{% endif %}" data-group-name="{{ name }}">
                     {% if thumb %}
-                        <img src="{{ thumb }}" class="item-thumb" alt="">
+                        <img src="{{ thumb }}" class="item-thumb{% if type == 'music' %} item-thumb--square{% endif %}" alt="">
                     {% else %}
                         <span class="item-icon">{{ typeIcon[type] }}</span>
                     {% endif %}
@@ -59,6 +79,7 @@
                 <button class="item-menu-btn"
                     data-type="{{ type }}"
                     data-group="{{ name }}"
+                    {% if menuCol %}data-col="{{ menuCol }}"{% endif %}
                     data-label="{{ name }}"
                     onclick="openItemMenu(event,this)" title="Options">···</button>
             </div>
@@ -80,6 +101,8 @@
                 {% set metaLabel = count ~ ' episode' ~ (count != 1 ? 's' : '') %}
             {% elseif type == 'music' %}
                 {% set metaLabel = count ~ ' track' ~ (count != 1 ? 's' : '') %}
+            {% elseif type == 'books' %}
+                {% set metaLabel = count ~ ' book' ~ (count != 1 ? 's' : '') %}
             {% else %}
                 {% set metaLabel = count ~ ' item' ~ (count != 1 ? 's' : '') %}
             {% endif %}
@@ -96,6 +119,100 @@
             </a>
         {% else %}
             <p style="color: var(--muted);">No {{ typeLabel[type]|lower }} found.</p>
+        {% endfor %}
+    </div>
+
+{% elseif currentView == 'songs' %}
+    {# ── Songs flat list ── #}
+    <div id="view-list" class="item-list">
+        {% for item in items %}
+            <div class="item-row-wrap">
+                <a href="/library/music/{{ item.relative_path }}" class="item-row{% if not item.metadata_fetched_at %} meta-pending{% endif %}" data-media-id="{{ item.id }}"{% if item.author %} data-group-name="{{ item.author }}"{% endif %}>
+                    {% if item.poster %}
+                        <img src="{{ item.poster }}" class="item-thumb item-thumb--square" alt="">
+                    {% else %}
+                        <span class="item-icon">🎵</span>
+                    {% endif %}
+                    <span class="item-name">{{ item.title ?? item.relative_path }}</span>
+                    <span class="item-meta">
+                        {% set parts = [] %}
+                        {% if item.author %}{% set parts = parts|merge([item.author]) %}{% endif %}
+                        {% if item.album %}{% set parts = parts|merge([item.album]) %}{% endif %}
+                        {% if item.year %}{% set parts = parts|merge([item.year ~ '']) %}{% endif %}
+                        {% if item.duration %}
+                            {% set dm = (item.duration / 60)|round(0, 'floor') %}
+                            {% set ds = item.duration % 60 %}
+                            {% set parts = parts|merge([dm ~ ':' ~ (ds < 10 ? '0' : '') ~ ds]) %}
+                        {% endif %}
+                        {{ parts|join(' · ') }}
+                    </span>
+                </a>
+                <button class="item-menu-btn" data-id="{{ item.id }}" data-type="music" data-label="{{ (item.title ?? '')|e }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+        {% else %}
+            <p style="color: var(--muted);">No songs found. Run a scan to index your library.</p>
+        {% endfor %}
+    </div>
+
+    <div id="view-grid" class="grid" style="display:none;">
+        {% for item in items %}
+            <a href="/library/music/{{ item.relative_path }}" class="card" data-media-id="{{ item.id }}"{% if item.author %} data-group-name="{{ item.author }}"{% endif %}>
+                {% if item.poster %}
+                    <img src="{{ item.poster }}" class="card-poster card-poster--square" alt="">
+                {% else %}
+                    <div class="card-poster-empty card-poster-empty--square">🎵</div>
+                {% endif %}
+                <div class="card-title">{{ item.title ?? item.relative_path }}</div>
+                <div class="card-meta">{{ item.author ?? '' }}{% if item.album %} · {{ item.album }}{% endif %}</div>
+            </a>
+        {% else %}
+            <p style="color: var(--muted);">No songs found.</p>
+        {% endfor %}
+    </div>
+
+{% elseif currentView == 'books' %}
+    {# ── Books flat list (all books across all authors) ── #}
+    <div id="view-list" class="item-list">
+        {% for item in items %}
+            <div class="item-row-wrap">
+                <a href="/library/books/{{ item.url_path }}" class="item-row" data-group-name="{{ item.series ?? item.name }}">
+                    {% if item.poster %}
+                        <img src="{{ item.poster }}" class="item-thumb" alt="">
+                    {% else %}
+                        <span class="item-icon">📚</span>
+                    {% endif %}
+                    <span class="item-name">{{ item.name }}</span>
+                    <span class="item-meta">
+                        {% set parts = [] %}
+                        {% if item.author %}{% set parts = parts|merge([item.author]) %}{% endif %}
+                        {% if item.series %}{% set parts = parts|merge([item.series]) %}{% endif %}
+                        {% if item.year %}{% set parts = parts|merge([item.year ~ '']) %}{% endif %}
+                        {% if item.has_audio and item.has_ebook %}{% set parts = parts|merge(['📖+🎧']) %}
+                        {% elseif item.has_audio %}{% set parts = parts|merge(['🎧']) %}
+                        {% elseif item.has_ebook %}{% set parts = parts|merge(['📖']) %}{% endif %}
+                        {{ parts|join(' · ') }}
+                    </span>
+                </a>
+                <button class="item-menu-btn" data-type="books" data-group="{{ item.name }}" data-label="{{ item.name|e }}" onclick="openItemMenu(event,this)" title="Options">···</button>
+            </div>
+        {% else %}
+            <p style="color: var(--muted);">No books found. Run a scan to index your library.</p>
+        {% endfor %}
+    </div>
+
+    <div id="view-grid" class="grid" style="display:none;">
+        {% for item in items %}
+            <a href="/library/books/{{ item.url_path }}" class="card" data-group-name="{{ item.series ?? item.name }}">
+                {% if item.poster %}
+                    <img src="{{ item.poster }}" class="card-poster" alt="">
+                {% else %}
+                    <div class="card-poster-empty">📚</div>
+                {% endif %}
+                <div class="card-title">{{ item.name }}</div>
+                <div class="card-meta">{{ item.author ?? '' }}{% if item.year %} · {{ item.year }}{% endif %}</div>
+            </a>
+        {% else %}
+            <p style="color: var(--muted);">No books found.</p>
         {% endfor %}
     </div>
 
@@ -118,9 +235,6 @@
                             {% set parts = parts|merge([item.series]) %}
                         {% endif %}
                         {% if item.year %}{% set parts = parts|merge([item.year ~ '']) %}{% endif %}
-                        {% if type in ['books', 'audiobooks'] %}
-                            {% set parts = parts|merge([item.extension|upper]) %}
-                        {% endif %}
                         {{ parts|join(' · ') }}
                     </span>
                 </a>
@@ -152,7 +266,7 @@
 {% block scripts %}
 <script>
 (function () {
-    const KEY  = 'browseView_{{ type }}';
+    const KEY  = 'browseView_{{ type }}_{{ currentView ?? "default" }}';
     const list = document.getElementById('view-list');
     const grid = document.getElementById('view-grid');
     const btnGrid = document.getElementById('btn-grid');
@@ -177,19 +291,20 @@
 {% endblock %}
 
 {% if pages > 1 %}
+{% set viewParam = view ? '&view=' ~ view : '' %}
 <div class="pagination">
     {% if page > 1 %}
-        <a href="?page={{ page - 1 }}">&larr; Prev</a>
+        <a href="?page={{ page - 1 }}{{ viewParam }}">&larr; Prev</a>
     {% endif %}
     {% for p in 1..pages %}
         {% if p == page %}
             <span class="current">{{ p }}</span>
         {% else %}
-            <a href="?page={{ p }}">{{ p }}</a>
+            <a href="?page={{ p }}{{ viewParam }}">{{ p }}</a>
         {% endif %}
     {% endfor %}
     {% if page < pages %}
-        <a href="?page={{ page + 1 }}">Next &rarr;</a>
+        <a href="?page={{ page + 1 }}{{ viewParam }}">Next &rarr;</a>
     {% endif %}
 </div>
 {% endif %}

@@ -1,5 +1,7 @@
 {% extends 'layout.html.twig' %}
 
+{% block scan_context %}{"type":"music","group":{{ artist|json_encode }}}{% endblock %}
+
 {% block title %}{{ album }} — {{ artist }} — MediaServer{% endblock %}
 
 {% block content %}
@@ -57,18 +59,26 @@
     </div>
 </div>
 
-{# ── Description ─────────────────────────────────────────────────────────── #}
-{% if album_meta and album_meta.description %}
+{# ── Description + Genres ─────────────────────────────────────────────────── #}
+{% set albumMeta = (album_meta and album_meta.metadata) ? (album_meta.metadata|json_decode) : {} %}
 <div class="item-detail-body">
-    <p class="item-description">{{ album_meta.description }}</p>
+    {% if album_meta and album_meta.description %}
+        <p class="item-description">{{ album_meta.description }}</p>
+    {% elseif not (album_meta and album_meta.metadata_fetched_at) %}
+        <p class="item-description" style="font-style:italic;">
+            No metadata yet — click ↻ Refresh Metadata above or run a scan.
+        </p>
+    {% endif %}
+
+    {% if albumMeta.genres is defined and albumMeta.genres|length > 0 %}
+    <div class="item-section">
+        <h2>Genres</h2>
+        <div class="cast-list">
+            {% for g in albumMeta.genres %}<span class="cast-chip">{{ g }}</span>{% endfor %}
+        </div>
+    </div>
+    {% endif %}
 </div>
-{% elseif not (album_meta and album_meta.metadata_fetched_at) %}
-<div class="item-detail-body">
-    <p class="item-description" style="font-style:italic;">
-        No metadata yet — click ↻ Refresh Metadata above or run a scan.
-    </p>
-</div>
-{% endif %}
 
 {# ── Track list ──────────────────────────────────────────────────────────── #}
 <h2 style="margin: 2rem 0 1rem; font-size:1rem; text-transform:uppercase; letter-spacing:0.5px; color:var(--muted);">
