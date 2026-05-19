@@ -116,7 +116,10 @@ class MediaController
             return $response->withHeader('Content-Type', 'application/json');
         }
 
-        $results = $this->metadata->searchExternal($mediaType, $query, $author);
+        $provider = $params['provider'] ?? null;
+        $results  = $provider
+            ? $this->metadata->searchByProvider($provider, $query, $author)
+            : $this->metadata->searchExternal($mediaType, $query, $author);
 
         $response->getBody()->write(json_encode($results));
         return $response->withHeader('Content-Type', 'application/json');

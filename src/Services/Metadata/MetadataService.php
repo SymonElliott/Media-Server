@@ -34,6 +34,19 @@ class MetadataService
         };
     }
 
+    /** Search using a specific provider by name, bypassing type-based routing. */
+    public function searchByProvider(string $provider, string $query, ?string $author = null): array
+    {
+        return match ($provider) {
+            'tmdb'         => $this->tmdb->searchMovieMulti($query),
+            'tmdb_show'    => $this->tmdb->searchShowMulti($query),
+            'musicbrainz'  => $this->musicBrainz->searchReleaseMulti($query),
+            'audnexus'     => $this->audnexus->searchMulti($query, $author),
+            'openlibrary'  => $this->openLibrary->searchMulti($query, $author),
+            default        => [],
+        };
+    }
+
     /** Re-enrich a single item using a specific externally-matched ID. */
     public function applyExternalMatch(int $mediaId, string $source, string $externalId): void
     {

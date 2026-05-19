@@ -621,6 +621,14 @@
         }
         .btn-change-match:hover { border-color: var(--accent); color: var(--accent); }
         .search-panel { margin-top: 1rem; }
+        .provider-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+        .provider-tab {
+            background: var(--surface2); border: 1px solid var(--border); border-radius: 20px;
+            padding: 0.25rem 0.75rem; font-size: 0.8rem; cursor: pointer; color: var(--muted);
+            font-family: inherit; transition: all 0.15s;
+        }
+        .provider-tab:hover { border-color: var(--accent); color: var(--text); }
+        .provider-tab.active { border-color: var(--accent); color: var(--accent); background: rgba(91,156,246,0.1); }
         .search-input-row { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
         .search-input-row input, #search-author {
             flex: 1; background: var(--surface2); border: 1px solid var(--border);
@@ -777,6 +785,7 @@
                     <button type="button" class="btn-change-match" onclick="toggleSearchPanel()">Change Matched Metadata</button>
                 </div>
                 <div id="search-panel" class="search-panel" style="display:none;">
+                    <div id="provider-tabs" class="provider-tabs"></div>
                     <div class="search-input-row">
                         <input type="text" id="search-query" placeholder="Title…" onkeydown="if(event.key==='Enter'){event.preventDefault();runMetadataSearch();}">
                         <button type="button" class="btn-secondary" onclick="runMetadataSearch()">Search</button>
@@ -1217,6 +1226,33 @@
                 document.getElementById('search-results').innerHTML = '';
                 document.getElementById('search-panel').style.display = 'none';
 
+                // Populate provider tabs
+                const PROVIDERS = {
+                    movies:     [{ label: 'TMDB',         value: 'tmdb' }],
+                    shows:      [{ label: 'TMDB',         value: 'tmdb' }],
+                    music:      [{ label: 'MusicBrainz',  value: 'musicbrainz' }],
+                    audiobooks: [{ label: 'Audnexus',     value: 'audnexus' },
+                                 { label: 'OpenLibrary',  value: 'openlibrary' }],
+                    books:      [{ label: 'OpenLibrary',  value: 'openlibrary' },
+                                 { label: 'Audnexus',     value: 'audnexus' }],
+                };
+                const providers = PROVIDERS[item.type] || [];
+                const tabsEl = document.getElementById('provider-tabs');
+                tabsEl.innerHTML = '';
+                providers.forEach((p, i) => {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.textContent = p.label;
+                    btn.dataset.provider = p.value;
+                    btn.className = 'provider-tab' + (i === 0 ? ' active' : '');
+                    btn.onclick = () => {
+                        tabsEl.querySelectorAll('.provider-tab').forEach(b => b.classList.remove('active'));
+                        btn.classList.add('active');
+                    };
+                    tabsEl.appendChild(btn);
+                });
+                tabsEl.style.display = providers.length > 1 ? '' : 'none';
+
                 document.getElementById('edit-modal').style.display = 'flex';
                 document.body.style.overflow = 'hidden';
             })
@@ -1287,8 +1323,11 @@
         if (!query) return;
         resultsEl.innerHTML = '<p class="search-empty">Searching…</p>';
 
+        const activeTab = document.querySelector('#provider-tabs .provider-tab.active');
+        const provider  = activeTab ? activeTab.dataset.provider : null;
         const params = { query, media_type: mediaType };
-        if (author) params.author = author;
+        if (author)   params.author   = author;
+        if (provider) params.provider = provider;
 
         fetch('/api/metadata/search?' + new URLSearchParams(params))
             .then(r => r.json())
