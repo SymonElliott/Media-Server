@@ -38,7 +38,7 @@
                 <span>{{ crumb.label }}</span>
             {% endif %}
         {% endfor %}
-    {% elseif entity.author %}
+    {% elseif entity.author and entity.author != name %}
         <span class="sep">/</span>
         <a href="/library/{{ type }}/{{ entity.author|url_encode }}">{{ entity.author }}</a>
         {% if entity.series and entity.series != name %}

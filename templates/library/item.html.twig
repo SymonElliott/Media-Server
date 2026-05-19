@@ -42,6 +42,21 @@
     {% elseif item.show_name %}
         <span class="sep">/</span>
         <a href="/library/{{ type }}/{{ item.show_name|url_encode }}">{{ item.show_name }}</a>
+        {% if item.season %}
+            <span class="sep">/</span>
+            <span>Season {{ item.season }}</span>
+        {% endif %}
+        <span class="sep">/</span>
+        <span>{{ item.title ?? item.filename }}</span>
+    {% elseif type == 'music' %}
+        {% if item.author %}
+            <span class="sep">/</span>
+            <a href="/library/music/{{ item.author|url_encode }}">{{ item.author }}</a>
+        {% endif %}
+        {% if item.series %}
+            <span class="sep">/</span>
+            <a href="/library/music/{{ item.author|url_encode }}/{{ item.series|url_encode }}">{{ item.series }}</a>
+        {% endif %}
         <span class="sep">/</span>
         <span>{{ item.title ?? item.filename }}</span>
     {% else %}
