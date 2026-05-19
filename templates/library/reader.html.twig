@@ -220,40 +220,63 @@
     const bookUrl    = {{ (convertUrl ?? item.stream_url)|json_encode|raw }};
     const storageKey = 'rpos-' + {{ item.id|json_encode|raw }};
 
-    const book      = ePub(bookUrl);
-    const rendition = book.renderTo('viewer', { flow: 'paginated', width: '100%', height: '100%' });
+    const viewerEl = document.getElementById('viewer');
+
+    function showError() {
+        if (viewerEl) {
+            viewerEl.innerHTML = '<div class="reader-unavailable"><p>Could not load this EPUB in the browser.</p>'
+                + '<a href="' + bookUrl + '" class="btn-download" download>Download</a></div>';
+        }
+    }
 
     function hideLoading() {
         const overlay = document.getElementById('reader-loading-overlay');
-        if (overlay) overlay.style.display = 'none';
+        if (overlay) overlay.remove();
     }
 
-    rendition.on('rendered', hideLoading);
+    // epub.js needs explicit pixel dimensions for paginated mode.
+    // Read them after layout so flex has resolved.
+    function getViewerSize() {
+        return { width: viewerEl.offsetWidth || 800, height: viewerEl.offsetHeight || 600 };
+    }
 
-    book.ready.catch(function () {
-        hideLoading();
-        const viewer = document.getElementById('viewer');
-        if (viewer) {
-            viewer.innerHTML = '<div class="reader-unavailable"><p>Could not load this file in the browser.</p>'
-                + '<a href="' + bookUrl + '" class="btn-download" download>Download</a></div>';
-        }
-    });
+    let book, rendition;
+    try {
+        const sz  = getViewerSize();
+        book      = ePub(bookUrl);
+        rendition = book.renderTo('viewer', { flow: 'paginated', width: sz.width, height: sz.height });
+    } catch (e) {
+        showError();
+        return;
+    }
+
+    // 30-second watchdog so a broken epub doesn't leave a spinner forever.
+    const watchdog = setTimeout(showError, 30000);
+
+    const saved = localStorage.getItem(storageKey);
+    book.ready
+        .then(function () { return rendition.display(saved || undefined); })
+        .then(function () {
+            clearTimeout(watchdog);
+            hideLoading();
+        })
+        .catch(function () {
+            clearTimeout(watchdog);
+            showError();
+        });
 
     rendition.themes.register('app', {
         body: {
-            background:  'var(--surface, #1a1a1a) !important',
-            color:       'var(--text, #e0e0e0) !important',
+            background:  '#1a1a1a !important',
+            color:       '#e0e0e0 !important',
             'font-family': 'system-ui, -apple-system, sans-serif !important',
             padding:     '2rem 3rem !important',
             'line-height': '1.7',
         },
         a: { color: '#5b9cf6 !important' },
-        'h1,h2,h3,h4': { color: 'var(--text, #e0e0e0) !important' },
+        'h1,h2,h3,h4': { color: '#e0e0e0 !important' },
     });
     rendition.themes.select('app');
-
-    const saved = localStorage.getItem(storageKey);
-    rendition.display(saved || undefined);
 
     rendition.on('relocated', function (loc) {
         localStorage.setItem(storageKey, loc.start.cfi);
