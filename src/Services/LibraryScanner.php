@@ -264,7 +264,7 @@ class LibraryScanner
                ?? $this->extractSeriesOrder($file->getBasename('.' . $ext)))
             : null;
 
-        $existing = $this->db->first('SELECT id FROM media WHERE path = ?', [$path]);
+        $existing = $this->db->first('SELECT id, episode FROM media WHERE path = ?', [$path]);
 
         $chapters = ($ext === 'm4b') ? $this->probeChapters($path) : null;
 
@@ -300,6 +300,13 @@ class LibraryScanner
         // was stored under a different path (e.g. after a file move or rename).
         if ($existing === null) {
             $this->inheritMetadata($dbType, $path, $meta);
+        } elseif ($existing['episode'] === null && ($meta['episode'] ?? null) !== null) {
+            // Episode number was just resolved (previously NULL, now known) — clear
+            // metadata_fetched_at so enrichShowSeasons re-runs and sets the TMDB title.
+            $this->db->execute(
+                'UPDATE media SET metadata_fetched_at = NULL WHERE id = ?',
+                [$existing['id']]
+            );
         }
 
         return $existing === null;
@@ -450,6 +457,20 @@ class LibraryScanner
         $season  = isset($parts[1]) ? (int) preg_replace('/\D/', '', $parts[1]) : null;
         $episode = null;
         if (preg_match('/[Ss](\d{1,2})[Ee](\d{1,3})/', $file->getFilename(), $m)) {
+            // Standard SxxExx format
+            $season  = (int) $m[1];
+            $episode = (int) $m[2];
+        } elseif (preg_match('/^(\d{1,2})\.(\d{2})\b/', $file->getFilename(), $m)) {
+            // NN.NN - Title format (e.g. "01.05 - The Enchiridion.mkv")
+            $fileSeason = (int) $m[1];
+            $episode    = (int) $m[2];
+            if ($season === null || $fileSeason === $season) {
+                $season = $fileSeason;
+            }
+            // If filename season differs from directory season (e.g. a Specials folder),
+            // keep the directory-derived season and use the second number as the episode.
+        } elseif (preg_match('/\b(\d{1,2})x(\d{2,3})\b/i', $file->getFilename(), $m)) {
+            // NxNN format (e.g. "1x05 - Title.mkv")
             $season  = (int) $m[1];
             $episode = (int) $m[2];
         }

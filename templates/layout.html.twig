@@ -65,13 +65,34 @@
         nav a:hover  { color: var(--text); }
         nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
         .nav-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; padding-left: 0.5rem; }
-        .nav-settings {
-            padding: 0 0.5rem;
-            color: var(--muted);
-            border-bottom-color: transparent;
+        .nav-profile-wrap { position: relative; margin-left: 0.25rem; }
+        .nav-profile {
+            width: 32px; height: 32px; border-radius: 50%;
+            background: var(--accent); color: #fff;
+            border: none; cursor: pointer; font-size: 0.85rem; font-weight: 600;
+            display: flex; align-items: center; justify-content: center;
+            transition: opacity 0.15s;
+            font-family: inherit;
         }
-        .nav-settings:hover { color: var(--text); }
-        .nav-settings.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .nav-profile:hover { opacity: 0.85; }
+        .nav-profile-menu {
+            display: none; position: absolute; top: calc(100% + 10px); right: 0;
+            background: var(--surface); border: 1px solid var(--border);
+            border-radius: 8px; min-width: 160px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4); z-index: 200;
+            overflow: hidden;
+        }
+        .nav-profile-menu.open { display: block; }
+        .nav-profile-name {
+            padding: 0.6rem 1rem; font-size: 0.82rem; color: var(--muted);
+            border-bottom: 1px solid var(--border); white-space: nowrap;
+        }
+        .nav-profile-signout {
+            width: 100%; background: none; border: none; text-align: left;
+            padding: 0.6rem 1rem; font-size: 0.85rem; color: var(--text);
+            cursor: pointer; font-family: inherit; transition: background 0.1s;
+        }
+        .nav-profile-signout:hover { background: var(--surface2); }
         .btn-scan, .btn-upload {
             background: var(--surface2);
             border: 1px solid var(--border);
@@ -86,71 +107,46 @@
         .btn-scan:hover  { background: var(--accent); border-color: var(--accent); color: #fff; }
         .btn-upload:hover { background: var(--surface); border-color: var(--muted); }
 
-        /* ── Nav toggle (mobile) ── */
+        /* ── Nav toggle ── */
         .nav-toggle {
-            display: none;
+            display: flex;
+            align-items: center;
             background: none;
             border: none;
             color: var(--muted);
             cursor: pointer;
             padding: 0.4rem;
-            margin-left: 0.25rem;
+            margin-right: 0.25rem;
             border-radius: 6px;
             transition: color 0.15s, background 0.15s;
         }
         .nav-toggle:hover { color: var(--text); background: var(--surface2); }
-        .nav-user {
-            display: flex; align-items: center; gap: 0.5rem;
-            padding-left: 0.5rem;
-            border-left: 1px solid var(--border);
-            margin-left: 0.25rem;
+        nav { position: relative; }
+        .nav-links {
+            display: none;
+            position: absolute;
+            top: 56px;
+            left: 0; right: 0;
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            flex-direction: column;
+            align-items: stretch;
+            padding: 0.5rem 0;
+            z-index: 99;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
         }
-        .nav-username {
-            font-size: 0.82rem;
-            color: var(--muted);
-            white-space: nowrap;
+        .nav-links.open { display: flex; }
+        .nav-links a {
+            height: auto;
+            padding: 0.75rem 1.5rem;
+            border-bottom: none;
+            border-left: 2px solid transparent;
         }
-        .btn-logout {
-            background: none;
-            border: 1px solid var(--border);
-            color: var(--muted);
-            font-size: 0.8rem;
-            padding: 0.25rem 0.6rem;
-            border-radius: 5px;
-            cursor: pointer;
-            white-space: nowrap;
-            transition: border-color 0.15s, color 0.15s;
-            font-family: inherit;
+        .nav-links a.active { border-left-color: var(--accent); border-bottom: none; }
+        .nav-links-divider {
+            height: 1px; background: var(--border); margin: 0.35rem 1rem;
         }
-        .btn-logout:hover { border-color: var(--muted); color: var(--text); }
 
-        @media (max-width: 860px) {
-            .nav-toggle { display: flex; align-items: center; }
-            .nav-links {
-                display: none;
-                position: absolute;
-                top: 56px;
-                left: 0; right: 0;
-                background: var(--surface);
-                border-bottom: 1px solid var(--border);
-                flex-direction: column;
-                align-items: stretch;
-                padding: 0.5rem 0;
-                z-index: 99;
-                box-shadow: 0 8px 24px rgba(0,0,0,0.4);
-            }
-            .nav-links.open { display: flex; }
-            .nav-links a {
-                height: auto;
-                padding: 0.75rem 1.5rem;
-                border-bottom: none;
-                border-left: 2px solid transparent;
-            }
-            .nav-links a.active { border-left-color: var(--accent); border-bottom: none; }
-            .nav-actions .btn-scan,
-            .nav-actions .btn-upload { display: none; }
-            nav { position: relative; }
-        }
 
         /* ── Upload modal ── */
         .upload-modal-backdrop {
@@ -867,6 +863,11 @@
 </head>
 <body>
     <nav>
+        <button class="nav-toggle" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
         <a href="/" class="brand">MediaServer</a>
         <div class="nav-links">
             <a href="/" data-nav>Home</a>
@@ -878,31 +879,27 @@
             {% if authUser is defined and authUser.role == 'admin' %}
             <a href="/users" data-nav>Users</a>
             {% endif %}
+            <div class="nav-links-divider"></div>
+            <a href="/settings" data-nav>Settings</a>
         </div>
         <div class="nav-actions">
             <button class="btn-upload" onclick="openRdModal()" id="btn-rd" style="display:none">Real-Debrid</button>
             <button class="btn-upload" onclick="openUploadModal()">Upload</button>
             <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
             {% if authUser is defined %}
-            <div class="nav-user">
-                <span class="nav-username">{{ authUser.username }}</span>
-                <form method="POST" action="/logout" style="margin:0">
-                    <button class="btn-logout" type="submit">Sign out</button>
-                </form>
+            <div class="nav-profile-wrap">
+                <button class="nav-profile" id="nav-profile-btn" onclick="toggleProfileMenu()" aria-label="Account">
+                    {{- authUser.username|slice(0,1)|upper -}}
+                </button>
+                <div class="nav-profile-menu" id="nav-profile-menu">
+                    <div class="nav-profile-name">{{ authUser.username }}</div>
+                    <form method="POST" action="/logout" style="margin:0">
+                        <button class="nav-profile-signout" type="submit">Sign out</button>
+                    </form>
+                </div>
             </div>
             {% endif %}
-            <a href="/settings" class="nav-settings" data-nav title="Settings">
-                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                    <circle cx="12" cy="12" r="3"/>
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-                </svg>
-            </a>
         </div>
-        <button class="nav-toggle" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">
-            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
-            </svg>
-        </button>
     </nav>
 
     <div id="scan-progress"><div id="scan-progress-fill"></div></div>
@@ -1409,6 +1406,23 @@
         function closeUploadModal() {
             document.getElementById('upload-modal-wrap').style.display = 'none';
         }
+
+        function toggleProfileMenu() {
+            const menu = document.getElementById('nav-profile-menu');
+            if (menu) menu.classList.toggle('open');
+        }
+        document.addEventListener('click', function (e) {
+            const btn  = document.getElementById('nav-profile-btn');
+            const menu = document.getElementById('nav-profile-menu');
+            if (menu && menu.classList.contains('open') && btn && !btn.contains(e.target) && !menu.contains(e.target)) {
+                menu.classList.remove('open');
+            }
+            const navLinks = document.querySelector('.nav-links');
+            const navToggle = document.querySelector('.nav-toggle');
+            if (navLinks && navLinks.classList.contains('open') && !navLinks.contains(e.target) && navToggle && !navToggle.contains(e.target)) {
+                navLinks.classList.remove('open');
+            }
+        });
 
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && document.getElementById('upload-modal-wrap').style.display !== 'none') {

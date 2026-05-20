@@ -190,17 +190,32 @@ class MetadataService
             usleep(150_000);
         }
 
-        // Pass 2: shows that have a TMDB ID but no season thumbnails yet
+        // Pass 2: shows that have a TMDB ID but still need per-episode data —
+        // either season thumbnails haven't been fetched yet, or new episodes were
+        // added since the last enrichment (metadata_fetched_at IS NULL on some rows).
         $needsSeasons = $this->db->query(
             'SELECT DISTINCT show_name, MAX(external_id) as tmdb_id FROM media
              WHERE type = "shows" AND external_source = "tmdb" AND external_id IS NOT NULL
-               AND (metadata IS NULL OR metadata NOT LIKE "%season_posters%")' . $groupFilter . '
+               AND (
+                   metadata IS NULL
+                   OR metadata NOT LIKE "%season_posters%"
+                   OR show_name IN (
+                       SELECT DISTINCT show_name FROM media
+                       WHERE type = "shows" AND metadata_fetched_at IS NULL
+                   )
+               )' . $groupFilter . '
              GROUP BY show_name',
             $groupParams
         );
         foreach ($needsSeasons as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
             $this->enrichShowSeasons($row['show_name'], (int) $row['tmdb_id']);
+            // Stamp any newly-added episodes so they don't trigger this pass on the next scan
+            $this->db->execute(
+                'UPDATE media SET metadata_fetched_at = CURRENT_TIMESTAMP
+                 WHERE type = "shows" AND show_name = ? AND metadata_fetched_at IS NULL',
+                [$row['show_name']]
+            );
         }
     }
 

@@ -78,6 +78,12 @@
         font-size: 0.7rem;
         color: var(--muted);
     }
+    .continue-sub-ep {
+        color: var(--text);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
 </style>
 
 {% set typeIcon = { movies: '🎬', shows: '📺', music: '🎵', books: '📚', audiobooks: '🎧' } %}
@@ -104,8 +110,14 @@
                     {% if item.show_name %}{{ item.show_name }}{% else %}{{ item.title ?? item.filename }}{% endif %}
                 </div>
                 <div class="continue-sub">
-                    {% if item.type == 'shows' and item.season and item.episode %}
-                        S{{ '%02d'|format(item.season) }}E{{ '%02d'|format(item.episode) }} · {{ item.percent }}%
+                    {% if item.type == 'shows' %}
+                        {% if item.title %}<div class="continue-sub-ep">{{ item.title }}</div>{% endif %}
+                        <div>
+                            {%- if item.season and item.episode -%}
+                                S{{ '%02d'|format(item.season) }}E{{ '%02d'|format(item.episode) }} ·
+                            {%- endif -%}
+                            {{ item.percent }}%
+                        </div>
                     {% elseif item.author %}
                         {{ item.author }} · {{ item.percent }}%
                     {% else %}

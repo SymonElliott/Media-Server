@@ -287,7 +287,12 @@
     rendition.themes.select('app');
 
     rendition.on('relocated', function (loc) {
-        const pct = loc.start.percentage || 0;
+        // loc.start.percentage requires locations.generate() which we don't call.
+        // Use spine index as a reliable fallback so position is always > 0.
+        const spineLen = (book.spine && book.spine.items) ? book.spine.items.length : 1;
+        const spinePct = (loc.start.index + 0.5) / Math.max(1, spineLen);
+        const pct      = loc.start.percentage > 0 ? loc.start.percentage : spinePct;
+
         const progress = document.getElementById('reader-progress');
         if (progress) progress.textContent = Math.round(pct * 100) + '%';
         const btnPrev = document.getElementById('btn-prev');
