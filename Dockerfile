@@ -1,0 +1,40 @@
+FROM php:8.2-apache
+
+# System deps + PHP extensions
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libzip-dev \
+        unzip \
+    && docker-php-ext-install pdo pdo_sqlite \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Increase limits for large media uploads
+RUN { \
+        echo 'upload_max_filesize = 4G'; \
+        echo 'post_max_size = 4G'; \
+        echo 'memory_limit = 256M'; \
+        echo 'max_execution_time = 300'; \
+        echo 'max_input_time = 300'; \
+    } > /usr/local/etc/php/conf.d/media-server.ini
+
+# Point Apache at the public/ sub-directory and enable mod_rewrite
+COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
+RUN a2enmod rewrite
+
+# Install Composer
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+WORKDIR /var/www/html
+
+# Install PHP deps first (separate layer — cached unless composer.json changes)
+COPY composer.json composer.lock ./
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Copy application source
+COPY . .
+
+# Ensure writable directories exist with correct ownership
+RUN mkdir -p storage/db storage/cache public/covers \
+    && chown -R www-data:www-data storage public/covers \
+    && chmod -R 775 storage public/covers
+
+EXPOSE 80

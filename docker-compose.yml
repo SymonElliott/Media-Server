@@ -1,0 +1,22 @@
+services:
+  media-server:
+    build: .
+    image: media-server:latest
+    container_name: media-server
+    restart: unless-stopped
+    ports:
+      - "8080:80"          # access at http://nas-ip:8080
+    env_file: .env
+    volumes:
+      # ── Your Synology media share ────────────────────────────────────────────
+      # Change /volume1/media to wherever your library lives on the NAS.
+      # Remove the comment on the line that matches your setup:
+      - /volume1/media:/library          # Synology shared folder
+      # - /mnt/user/media:/library       # Unraid
+      # - ./sample-library:/library      # local dev
+
+      # ── Persistent data (DB + cache + cover art) ─────────────────────────────
+      # These are written relative to the compose file on the NAS; they survive
+      # container rebuilds and upgrades.
+      - ./data/storage:/var/www/html/storage
+      - ./data/covers:/var/www/html/public/covers

@@ -1,0 +1,8 @@
+RewriteEngine On
+
+# Serve real files/dirs directly (CSS, JS, images, etc.)
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteCond %{REQUEST_FILENAME} !-d
+
+# Route everything else through Slim's front controller
+RewriteRule ^ index.php [QSA,L]
