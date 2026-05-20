@@ -3,6 +3,7 @@ FROM php:8.2-apache
 # System deps + PHP extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libzip-dev \
+        libsqlite3-dev \
         unzip \
     && docker-php-ext-install pdo pdo_sqlite \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
