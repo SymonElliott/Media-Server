@@ -31,10 +31,9 @@
         nav {
             background: var(--surface);
             border-bottom: 1px solid var(--border);
-            padding: 0 2rem;
+            padding: 0 1.5rem;
             display: flex;
             align-items: center;
-            gap: 0;
             height: 56px;
             position: sticky;
             top: 0;
@@ -45,24 +44,35 @@
             font-weight: 700;
             color: var(--accent);
             text-decoration: none;
-            margin-right: 2rem;
+            margin-right: 1rem;
             letter-spacing: -0.3px;
+            white-space: nowrap;
+            flex-shrink: 0;
         }
+        .nav-links { display: flex; align-items: center; }
         nav a {
             color: var(--muted);
             text-decoration: none;
-            padding: 0 1rem;
+            padding: 0 0.75rem;
             height: 56px;
             display: flex;
             align-items: center;
             font-size: 0.9rem;
             border-bottom: 2px solid transparent;
             transition: color 0.15s, border-color 0.15s;
+            white-space: nowrap;
         }
         nav a:hover  { color: var(--text); }
         nav a.active { color: var(--accent); border-bottom-color: var(--accent); }
-        .nav-actions { margin-left: auto; }
-        .btn-scan {
+        .nav-actions { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; padding-left: 0.5rem; }
+        .nav-settings {
+            padding: 0 0.5rem;
+            color: var(--muted);
+            border-bottom-color: transparent;
+        }
+        .nav-settings:hover { color: var(--text); }
+        .nav-settings.active { color: var(--accent); border-bottom-color: var(--accent); }
+        .btn-scan, .btn-upload {
             background: var(--surface2);
             border: 1px solid var(--border);
             color: var(--text);
@@ -70,21 +80,77 @@
             border-radius: 6px;
             font-size: 0.85rem;
             cursor: pointer;
-            transition: background 0.15s;
+            white-space: nowrap;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
         }
-        .btn-scan:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
-        .btn-upload {
-            background: var(--surface2);
-            border: 1px solid var(--border);
-            color: var(--text);
-            padding: 0.35rem 0.85rem;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            cursor: pointer;
-            transition: background 0.15s;
-            margin-right: 0.5rem;
-        }
+        .btn-scan:hover  { background: var(--accent); border-color: var(--accent); color: #fff; }
         .btn-upload:hover { background: var(--surface); border-color: var(--muted); }
+
+        /* ── Nav toggle (mobile) ── */
+        .nav-toggle {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--muted);
+            cursor: pointer;
+            padding: 0.4rem;
+            margin-left: 0.25rem;
+            border-radius: 6px;
+            transition: color 0.15s, background 0.15s;
+        }
+        .nav-toggle:hover { color: var(--text); background: var(--surface2); }
+        .nav-user {
+            display: flex; align-items: center; gap: 0.5rem;
+            padding-left: 0.5rem;
+            border-left: 1px solid var(--border);
+            margin-left: 0.25rem;
+        }
+        .nav-username {
+            font-size: 0.82rem;
+            color: var(--muted);
+            white-space: nowrap;
+        }
+        .btn-logout {
+            background: none;
+            border: 1px solid var(--border);
+            color: var(--muted);
+            font-size: 0.8rem;
+            padding: 0.25rem 0.6rem;
+            border-radius: 5px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: border-color 0.15s, color 0.15s;
+            font-family: inherit;
+        }
+        .btn-logout:hover { border-color: var(--muted); color: var(--text); }
+
+        @media (max-width: 860px) {
+            .nav-toggle { display: flex; align-items: center; }
+            .nav-links {
+                display: none;
+                position: absolute;
+                top: 56px;
+                left: 0; right: 0;
+                background: var(--surface);
+                border-bottom: 1px solid var(--border);
+                flex-direction: column;
+                align-items: stretch;
+                padding: 0.5rem 0;
+                z-index: 99;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+            }
+            .nav-links.open { display: flex; }
+            .nav-links a {
+                height: auto;
+                padding: 0.75rem 1.5rem;
+                border-bottom: none;
+                border-left: 2px solid transparent;
+            }
+            .nav-links a.active { border-left-color: var(--accent); border-bottom: none; }
+            .nav-actions .btn-scan,
+            .nav-actions .btn-upload { display: none; }
+            nav { position: relative; }
+        }
 
         /* ── Upload modal ── */
         .upload-modal-backdrop {
@@ -802,16 +868,41 @@
 <body>
     <nav>
         <a href="/" class="brand">MediaServer</a>
-        <a href="/" data-nav>Home</a>
-        <a href="/library/movies" data-nav>Movies</a>
-        <a href="/library/shows" data-nav>Shows</a>
-        <a href="/library/music" data-nav>Music</a>
-        <a href="/library/books" data-nav>Books</a>
-        <a href="/people" data-nav>People</a>
+        <div class="nav-links">
+            <a href="/" data-nav>Home</a>
+            <a href="/library/movies" data-nav>Movies</a>
+            <a href="/library/shows" data-nav>Shows</a>
+            <a href="/library/music" data-nav>Music</a>
+            <a href="/library/books" data-nav>Books</a>
+            <a href="/people" data-nav>People</a>
+            {% if authUser is defined and authUser.role == 'admin' %}
+            <a href="/users" data-nav>Users</a>
+            {% endif %}
+        </div>
         <div class="nav-actions">
+            <button class="btn-upload" onclick="openRdModal()" id="btn-rd" style="display:none">Real-Debrid</button>
             <button class="btn-upload" onclick="openUploadModal()">Upload</button>
             <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
+            {% if authUser is defined %}
+            <div class="nav-user">
+                <span class="nav-username">{{ authUser.username }}</span>
+                <form method="POST" action="/logout" style="margin:0">
+                    <button class="btn-logout" type="submit">Sign out</button>
+                </form>
+            </div>
+            {% endif %}
+            <a href="/settings" class="nav-settings" data-nav title="Settings">
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"/>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                </svg>
+            </a>
         </div>
+        <button class="nav-toggle" aria-label="Menu" onclick="document.querySelector('.nav-links').classList.toggle('open')">
+            <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/>
+            </svg>
+        </button>
     </nav>
 
     <div id="scan-progress"><div id="scan-progress-fill"></div></div>
@@ -856,6 +947,42 @@
         </div>
     </div>
 
+
+    <!-- ── Real-Debrid modal ── -->
+    <div id="rd-modal-wrap" style="display:none;" onclick="if(event.target===this)closeRdModal()">
+        <div class="upload-modal-backdrop" onclick="closeRdModal()">
+            <div class="upload-modal" onclick="event.stopPropagation()" style="max-width:520px;">
+                <button class="modal-close" onclick="closeRdModal()" style="position:absolute;top:0.75rem;right:0.75rem;">✕</button>
+                <h2>Add via Real-Debrid</h2>
+
+                <div class="upload-field">
+                    <label for="rd-input">Magnet link or direct URL</label>
+                    <input type="text" id="rd-input" placeholder="magnet:?xt=… or https://…"
+                        style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.88rem;padding:0.45rem 0.75rem;font-family:monospace;">
+                </div>
+
+                <div class="upload-field">
+                    <label for="rd-category">Save to</label>
+                    <select id="rd-category">
+                        <option value="movies">Movies</option>
+                        <option value="shows">Shows</option>
+                        <option value="music">Music</option>
+                        <option value="books">Books</option>
+                    </select>
+                </div>
+
+                <div class="upload-actions">
+                    <button class="btn-refresh" onclick="closeRdModal()">Cancel</button>
+                    <button class="btn-play-hero" id="rd-submit-btn" onclick="submitRd()" style="font-size:0.85rem;padding:0.4rem 1rem;">Add &amp; Download</button>
+                </div>
+
+                <div id="rd-queue" style="margin-top:1.25rem;display:none;">
+                    <div style="font-size:0.78rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:0.6rem;">Active Downloads</div>
+                    <div id="rd-queue-rows"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- ── Context menu dropdown (singleton) ── -->
     <div id="item-dropdown" class="item-dropdown" style="display:none;"></div>
@@ -1418,6 +1545,128 @@
     </script>
 
     {% block scripts %}{% endblock %}
+
+    <script>
+    // ── Real-Debrid ───────────────────────────────────────────────────────────
+
+    let rdPollTimer = null;
+
+    (function detectRd() {
+        fetch('/rd/queue')
+            .then(r => r.json())
+            .then(rows => {
+                const btn = document.getElementById('btn-rd');
+                if (!btn) return;
+                // Show the button (RD is configured if the endpoint works without a 503)
+                btn.style.display = '';
+                if (rows.length) {
+                    renderRdQueue(rows);
+                    document.getElementById('rd-queue').style.display = '';
+                }
+            })
+            .catch(() => {}); // RD not configured — button stays hidden
+    })();
+
+    function openRdModal() {
+        document.getElementById('rd-input').value = '';
+        document.getElementById('rd-modal-wrap').style.display = '';
+        document.getElementById('rd-submit-btn').disabled = false;
+        document.getElementById('rd-submit-btn').textContent = 'Add & Download';
+        loadRdQueue();
+    }
+
+    function closeRdModal() {
+        document.getElementById('rd-modal-wrap').style.display = 'none';
+        clearTimeout(rdPollTimer);
+    }
+
+    function submitRd() {
+        const input    = document.getElementById('rd-input').value.trim();
+        const category = document.getElementById('rd-category').value;
+        if (!input) { showToast('Enter a magnet link or URL'); return; }
+
+        const btn = document.getElementById('rd-submit-btn');
+        btn.disabled = true;
+        btn.textContent = 'Adding…';
+
+        const body = input.startsWith('magnet:')
+            ? { magnet: input, category }
+            : { url:    input, category };
+
+        fetch('/rd/add', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify(body),
+        })
+            .then(r => r.json())
+            .then(d => {
+                if (d.error) {
+                    showToast('RD error: ' + d.error);
+                    btn.disabled = false;
+                    btn.textContent = 'Add & Download';
+                    return;
+                }
+                document.getElementById('rd-input').value = '';
+                btn.disabled = false;
+                btn.textContent = 'Add & Download';
+                loadRdQueue();
+                showToast('Added to Real-Debrid — downloading…');
+            })
+            .catch(() => {
+                showToast('Failed to add');
+                btn.disabled = false;
+                btn.textContent = 'Add & Download';
+            });
+    }
+
+    function loadRdQueue() {
+        fetch('/rd/queue')
+            .then(r => r.json())
+            .then(rows => {
+                const wrap = document.getElementById('rd-queue');
+                const list = document.getElementById('rd-queue-rows');
+                if (!rows.length) { wrap.style.display = 'none'; return; }
+                wrap.style.display = '';
+                renderRdQueue(rows);
+                const active = rows.some(r => !['done','error'].includes(r.status));
+                if (active) rdPollTimer = setTimeout(loadRdQueue, 4000);
+            })
+            .catch(() => {});
+    }
+
+    function renderRdQueue(rows) {
+        const list = document.getElementById('rd-queue-rows');
+        if (!list) return;
+        list.innerHTML = rows.map(r => {
+            const pct      = Math.round(r.progress ?? 0);
+            const isDone   = r.status === 'done';
+            const isErr    = r.status === 'error';
+            const icon     = isDone ? '✓' : isErr ? '✗' : '⟳';
+            const color    = isDone ? 'var(--accent)' : isErr ? '#f87171' : 'var(--muted)';
+            const label    = r.filename || r.id;
+            const sub      = isErr
+                ? (r.error || 'Error')
+                : isDone
+                    ? r.category
+                    : (r.rd_status ?? r.status) + (pct && !isDone ? ' · ' + pct + '%' : '');
+            return `<div class="upload-result-row">
+                <span class="upload-result-icon" style="color:${color}">${icon}</span>
+                <div style="flex:1;min-width:0;">
+                    <div class="upload-result-name" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHtml(label)}</div>
+                    <div class="upload-result-dest">${escHtml(sub)}</div>
+                    ${!isDone && !isErr && pct ? `<div style="height:2px;background:var(--border);border-radius:1px;margin-top:4px;"><div style="width:${pct}%;height:100%;background:var(--accent);border-radius:1px;transition:width 1s;"></div></div>` : ''}
+                </div>
+                ${isDone || isErr ? `<button onclick="removeRdItem('${escHtml(r.id)}')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:1rem;padding:0 0.3rem;" title="Dismiss">✕</button>` : ''}
+            </div>`;
+        }).join('');
+    }
+
+    function removeRdItem(id) {
+        fetch('/rd/' + encodeURIComponent(id), { method: 'DELETE' })
+            .then(() => loadRdQueue())
+            .catch(() => {});
+    }
+    </script>
 
     <script>
     // ── Context menu ─────────────────────────────────────────────────────────

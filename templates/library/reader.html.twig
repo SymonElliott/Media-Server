@@ -218,9 +218,8 @@
 <script src="/js/epub.min.js"></script>
 <script>
 (function () {
-    const bookUrl    = {{ (convertUrl ?? item.stream_url)|json_encode|raw }};
-    const storageKey = 'rpos-' + {{ item.id|json_encode|raw }};
-
+    const bookUrl  = {{ (convertUrl ?? item.stream_url)|json_encode|raw }};
+    const MEDIA_ID = {{ item.id }};
     const viewerEl = document.getElementById('viewer');
 
     function showError() {
@@ -254,9 +253,17 @@
     // 30-second watchdog so a broken epub doesn't leave a spinner forever.
     const watchdog = setTimeout(showError, 30000);
 
-    const saved = localStorage.getItem(storageKey);
-    book.ready
-        .then(function () { return rendition.display(saved || undefined); })
+    // Load saved position from server, fall back to localStorage for backwards compat
+    const legacyKey = 'rpos-' + MEDIA_ID;
+    fetch('/api/progress/' + MEDIA_ID)
+        .then(function (r) { return r.json(); })
+        .then(function (p) {
+            const cfi = (p && p.position_cfi) ? p.position_cfi : localStorage.getItem(legacyKey);
+            return book.ready.then(function () { return rendition.display(cfi || undefined); });
+        })
+        .catch(function () {
+            return book.ready.then(function () { return rendition.display(undefined); });
+        })
         .then(function () {
             clearTimeout(watchdog);
             hideLoading();
@@ -280,14 +287,27 @@
     rendition.themes.select('app');
 
     rendition.on('relocated', function (loc) {
-        localStorage.setItem(storageKey, loc.start.cfi);
-        const pct = Math.round((loc.start.percentage || 0) * 100);
+        const pct = loc.start.percentage || 0;
         const progress = document.getElementById('reader-progress');
-        if (progress) progress.textContent = pct + '%';
+        if (progress) progress.textContent = Math.round(pct * 100) + '%';
         const btnPrev = document.getElementById('btn-prev');
         const btnNext = document.getElementById('btn-next');
         if (btnPrev) btnPrev.disabled = loc.atStart;
         if (btnNext) btnNext.disabled = loc.atEnd;
+
+        // Save to server and keep localStorage as fallback
+        const cfi = loc.start.cfi;
+        localStorage.setItem(legacyKey, cfi);
+        fetch('/api/progress/' + MEDIA_ID, {
+            method:  'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                position:     pct,
+                duration:     1,
+                position_cfi: cfi,
+                completed:    loc.atEnd ? 1 : 0,
+            }),
+        }).catch(function () {});
     });
 
     book.loaded.navigation.then(function (nav) {

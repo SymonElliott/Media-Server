@@ -2,10 +2,16 @@
 
 declare(strict_types=1);
 
+use App\Controllers\AuthController;
+use App\Controllers\ProgressController;
 use App\Controllers\LibraryController;
 use App\Controllers\MediaController;
 use App\Controllers\PeopleController;
+use App\Controllers\RealDebridController;
+use App\Controllers\SettingsController;
 use App\Controllers\UploadController;
+use App\Controllers\UsersController;
+use App\Middleware\AuthMiddleware;
 use App\Services\PeopleService;
 use App\Database\Connection;
 use App\Services\LibraryScanner;
@@ -14,6 +20,9 @@ use App\Services\Metadata\MetadataService;
 use App\Services\Metadata\MusicBrainzProvider;
 use App\Services\Metadata\OpenLibraryProvider;
 use App\Services\Metadata\TmdbProvider;
+use App\Services\RealDebridService;
+use App\Services\RenameService;
+use App\Services\Settings;
 use App\Services\StreamService;
 use GuzzleHttp\Client;
 use Twig\Environment;
@@ -42,15 +51,27 @@ return [
         return new Connection(__DIR__ . '/../../storage/db/media.sqlite');
     },
 
-    LibraryScanner::class => function ($c) {
-        return new LibraryScanner(
+    Settings::class => function ($c) {
+        return new Settings($c->get(Connection::class));
+    },
+
+    RenameService::class => function ($c) {
+        return new RenameService(
             $c->get(Connection::class),
-            $_ENV['LIBRARY_PATH'] ?? '/library'
+            $c->get(Settings::class),
+            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
         );
     },
 
-    StreamService::class => function () {
-        return new StreamService($_ENV['LIBRARY_PATH'] ?? '/library');
+    LibraryScanner::class => function ($c) {
+        return new LibraryScanner(
+            $c->get(Connection::class),
+            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
+        );
+    },
+
+    StreamService::class => function ($c) {
+        return new StreamService($c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library'));
     },
 
     Client::class => function () {
@@ -58,11 +79,11 @@ return [
     },
 
     TmdbProvider::class => function ($c) {
-        return new TmdbProvider($c->get(Client::class), $_ENV['TMDB_API_KEY'] ?? '');
+        return new TmdbProvider($c->get(Client::class), $c->get(Settings::class)->getEnv('TMDB_API_KEY'));
     },
 
     MusicBrainzProvider::class => function ($c) {
-        return new MusicBrainzProvider($c->get(Client::class), $_ENV['MUSICBRAINZ_USER_AGENT'] ?? 'MediaServer/1.0');
+        return new MusicBrainzProvider($c->get(Client::class), $c->get(Settings::class)->getEnv('MUSICBRAINZ_USER_AGENT', 'MediaServer/1.0'));
     },
 
     OpenLibraryProvider::class => function ($c) {
@@ -81,7 +102,8 @@ return [
             $c->get(OpenLibraryProvider::class),
             $c->get(AudnexusProvider::class),
             $c->get(Client::class),
-            __DIR__ . '/../../public/covers'
+            __DIR__ . '/../../public/covers',
+            $c->get(RenameService::class)
         );
     },
 
@@ -101,14 +123,62 @@ return [
             $c->get(Environment::class),
             $c->get(Connection::class),
             $c->get(PeopleService::class),
-            $_ENV['LIBRARY_PATH'] ?? '/library'
+            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
         );
     },
 
     MediaController::class => function ($c) {
         return new MediaController(
             $c->get(Connection::class),
-            $c->get(MetadataService::class)
+            $c->get(MetadataService::class),
+            $c->get(RenameService::class)
+        );
+    },
+
+    RealDebridService::class => function ($c) {
+        return new RealDebridService(
+            $c->get(Client::class),
+            $c->get(Settings::class)->getEnv('REAL_DEBRID_API_KEY')
+        );
+    },
+
+    RealDebridController::class => function ($c) {
+        return new RealDebridController(
+            $c->get(Connection::class),
+            $c->get(RealDebridService::class)
+        );
+    },
+
+    SettingsController::class => function ($c) {
+        return new SettingsController(
+            $c->get(Environment::class),
+            $c->get(Settings::class),
+            __DIR__ . '/../..'
+        );
+    },
+
+    AuthController::class => function ($c) {
+        return new AuthController(
+            $c->get(Environment::class),
+            $c->get(Connection::class)
+        );
+    },
+
+    ProgressController::class => function ($c) {
+        return new ProgressController($c->get(Connection::class));
+    },
+
+    UsersController::class => function ($c) {
+        return new UsersController(
+            $c->get(Environment::class),
+            $c->get(Connection::class)
+        );
+    },
+
+    AuthMiddleware::class => function ($c) {
+        return new AuthMiddleware(
+            $c->get(Environment::class),
+            $c->get(Connection::class)
         );
     },
 
@@ -116,7 +186,7 @@ return [
         return new UploadController(
             $c->get(MetadataService::class),
             $c->get(LibraryScanner::class),
-            $_ENV['LIBRARY_PATH'] ?? '/library'
+            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
         );
     },
 
@@ -126,7 +196,7 @@ return [
             $c->get(Connection::class),
             $c->get(LibraryScanner::class),
             $c->get(MetadataService::class),
-            $_ENV['LIBRARY_PATH'] ?? '/library'
+            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
         );
     },
 ];

@@ -275,7 +275,7 @@ class LibraryScanner
                     :book_name, :book_version, :show_name, :season, :episode, :duration, :series_order, :chapters)
             ON CONFLICT(path) DO UPDATE SET
                 size         = excluded.size,
-                series       = excluded.series,
+                series       = COALESCE(excluded.series, series),
                 book_name    = excluded.book_name,
                 book_version = excluded.book_version,
                 season       = excluded.season,
@@ -512,7 +512,7 @@ class LibraryScanner
                     ];
                 }
 
-                // depth 3: either Author/Book/Narrator/chapter or Author/Series/Book/file
+                // depth 3: Author/Book/Narrator/chapter or (legacy) Author/OldSeries/Book/file
                 if ($depth === 3) {
                     if (in_array($ext, $chapterExts, true)) {
                         // Author / Book / Narrator / chapter.mp3
@@ -527,11 +527,12 @@ class LibraryScanner
                             'episode'      => null,
                         ];
                     }
-                    // Author / Series / Book / file
+                    // Legacy: Author / OldSeriesDir / Book / file — book_name is parts[2].
+                    // series is never set from path; metadata enrichment sets it instead.
                     return [
                         'title'        => $title,
                         'author'       => $author,
-                        'series'       => $parts[1] ?? null,
+                        'series'       => null,
                         'book_name'    => $parts[2] ?? null,
                         'book_version' => null,
                         'show_name'    => null,
@@ -540,11 +541,11 @@ class LibraryScanner
                     ];
                 }
 
-                // depth 4: Author / Series / Book / Narrator / chapter.mp3
+                // depth 4: Author / OldSeriesDir / Book / Narrator / chapter.mp3
                 return [
                     'title'        => $title,
                     'author'       => $author,
-                    'series'       => $parts[1] ?? null,
+                    'series'       => null,
                     'book_name'    => $parts[2] ?? null,
                     'book_version' => $parts[3] ?? null,
                     'show_name'    => null,

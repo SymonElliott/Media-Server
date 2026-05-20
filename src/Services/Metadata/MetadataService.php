@@ -5,18 +5,20 @@ declare(strict_types=1);
 namespace App\Services\Metadata;
 
 use App\Database\Connection;
+use App\Services\RenameService;
 use GuzzleHttp\ClientInterface;
 
 class MetadataService
 {
     public function __construct(
-        private readonly Connection $db,
-        private readonly TmdbProvider $tmdb,
+        private readonly Connection    $db,
+        private readonly TmdbProvider  $tmdb,
         private readonly MusicBrainzProvider $musicBrainz,
         private readonly OpenLibraryProvider $openLibrary,
-        private readonly AudnexusProvider $audnexus,
-        private readonly ClientInterface $http,
-        private readonly string $coversDir
+        private readonly AudnexusProvider    $audnexus,
+        private readonly ClientInterface     $http,
+        private readonly string              $coversDir,
+        private readonly ?RenameService      $renamer = null
     ) {}
 
     // ── Public API ────────────────────────────────────────────────────────
@@ -72,12 +74,16 @@ class MetadataService
             if ($meta['external_id'] ?? null) {
                 $this->enrichShowSeasons($item['show_name'], (int) $meta['external_id']);
             }
+            $this->renamer?->renameShowEpisodes($item['show_name']);
         } elseif ($item['type'] === 'audiobooks' && $item['book_name']) {
             $this->applyToBook($item['book_name'], $meta, true);
+            $this->renamer?->renameBookFiles($item['book_name']);
         } elseif ($item['type'] === 'music') {
             $this->applyToAlbum($item['author'], $item['series'], $meta, true);
+            $this->renamer?->renameAlbumTracks($item['author'] ?? '', $item['series'] ?? '');
         } else {
             $this->applyToSingle($mediaId, $meta, true);
+            $this->renamer?->renameItem($mediaId);
         }
     }
 
@@ -290,6 +296,7 @@ class MetadataService
         $searchTitle = $this->cleanMovieSearchTitle($rawTitle);
         $meta        = $this->tmdb->searchMovie($searchTitle, $item['year']);
         $this->applyToSingle($item['id'], $meta, true);
+        $this->renamer?->renameItem($item['id']);
     }
 
     private function cleanMovieSearchTitle(string $title): string
@@ -313,6 +320,8 @@ class MetadataService
         if (($meta['external_id'] ?? null) && ($meta['external_source'] ?? null) === 'tmdb') {
             $this->enrichShowSeasons($showName, (int) $meta['external_id']);
         }
+
+        $this->renamer?->renameShowEpisodes($showName);
     }
 
     private function enrichShowSeasons(string $showName, int $tmdbId): void
@@ -378,6 +387,7 @@ class MetadataService
         if (!$artist) return;
         $meta = $this->musicBrainz->searchRelease($artist, $album);
         $this->applyToAlbum($artist, $album, $meta, true);
+        $this->renamer?->renameAlbumTracks($artist, $album ?? '');
     }
 
     private function enrichBook(array $item): void
@@ -386,6 +396,7 @@ class MetadataService
         $title = $this->cleanBookSearchTitle($raw, $item['author'] ?? null);
         $meta  = $this->openLibrary->search($title, $item['author']);
         $this->applyToSingle($item['id'], $meta, true);
+        $this->renamer?->renameItem($item['id']);
     }
 
     private function enrichAudiobook(?string $bookName, ?string $author, ?string $cleanTitle = null): void
@@ -396,6 +407,7 @@ class MetadataService
         $meta = $this->audnexus->search($title, $author)
             ?? $this->openLibrary->search($title, $author);
         $this->applyToBook($bookName, $meta, true);
+        $this->renamer?->renameBookFiles($bookName);
     }
 
     // ── DB update helpers ─────────────────────────────────────────────────

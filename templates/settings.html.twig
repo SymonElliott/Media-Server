@@ -1,0 +1,261 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}Settings — MediaServer{% endblock %}
+
+{% block content %}
+<style>
+    .settings-page { max-width: 660px; }
+    .settings-page h1 { margin-bottom: 2rem; }
+
+    .settings-section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 1.75rem;
+    }
+    .settings-section-title {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--muted);
+        padding: 0.85rem 1.25rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .settings-row {
+        display: flex;
+        align-items: center;
+        gap: 1.5rem;
+        padding: 0.9rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .settings-row:last-child { border-bottom: none; }
+    .settings-row-label {
+        flex: 0 0 200px;
+    }
+    .settings-row-label strong { display: block; font-size: 0.88rem; font-weight: 500; }
+    .settings-row-label span { font-size: 0.78rem; color: var(--muted); line-height: 1.4; }
+    .settings-row-control { flex: 1; }
+
+    .settings-input {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--text);
+        padding: 0.45rem 0.75rem;
+        font-family: inherit;
+        font-size: 0.88rem;
+    }
+    .settings-input:focus { outline: none; border-color: var(--accent); }
+    .settings-input--mono { font-family: monospace; font-size: 0.82rem; }
+
+    /* Toggle switch */
+    .toggle { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle-track {
+        position: absolute; inset: 0;
+        background: var(--border);
+        border-radius: 24px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+    .toggle input:checked + .toggle-track { background: var(--accent); }
+    .toggle-track::after {
+        content: '';
+        position: absolute;
+        width: 18px; height: 18px;
+        background: #fff;
+        border-radius: 50%;
+        top: 3px; left: 3px;
+        transition: transform 0.2s;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+    }
+    .toggle input:checked + .toggle-track::after { transform: translateX(20px); }
+
+    /* Arr pair: URL + key on same row */
+    .arr-pair { display: flex; flex-direction: column; gap: 0.4rem; }
+    .arr-pair-sub { display: flex; gap: 0.5rem; align-items: center; }
+    .arr-pair-sub label { font-size: 0.72rem; color: var(--muted); width: 30px; flex-shrink: 0; }
+
+    .settings-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 1rem;
+        padding-top: 0.25rem;
+    }
+    .save-notice {
+        font-size: 0.82rem;
+        color: #4ade80;
+        display: none;
+    }
+    .save-notice.show { display: block; }
+</style>
+
+<div class="settings-page">
+    <h1>Settings</h1>
+
+    {% if saved %}
+    <p style="color:#4ade80;font-size:0.88rem;margin-bottom:1.5rem;">
+        ✓ Settings saved. Restart the server for .env changes to take effect.
+    </p>
+    {% endif %}
+
+    <form method="POST" action="/settings">
+
+        {# ── Library ──────────────────────────────────────────────────────── #}
+        <div class="settings-section">
+            <div class="settings-section-title">Library</div>
+
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>Library Path</strong>
+                    <span>Root directory of your media library</span>
+                </div>
+                <div class="settings-row-control">
+                    <input class="settings-input settings-input--mono" type="text" name="LIBRARY_PATH"
+                        value="{{ env.LIBRARY_PATH ?? '' }}">
+                </div>
+            </div>
+
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>Auto-rename files</strong>
+                    <span>Rename files and directories to the canonical scheme after any metadata update</span>
+                </div>
+                <div class="settings-row-control" style="display:flex;justify-content:flex-end;">
+                    <label class="toggle">
+                        <input type="checkbox" name="auto_rename" value="1"
+                            {{ (settings.auto_rename ?? '0') == '1' ? 'checked' : '' }}>
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>Debug mode</strong>
+                    <span>Show detailed error pages (disable in production)</span>
+                </div>
+                <div class="settings-row-control" style="display:flex;justify-content:flex-end;">
+                    <label class="toggle">
+                        <input type="checkbox" name="APP_DEBUG" value="1"
+                            {{ (env.APP_DEBUG ?? 'false') == 'true' ? 'checked' : '' }}>
+                        <span class="toggle-track"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        {# ── Real-Debrid ───────────────────────────────────────────────────── #}
+        <div class="settings-section">
+            <div class="settings-section-title">Real-Debrid</div>
+
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>API Key</strong>
+                    <span>Found in your RD account under <em>Account &rsaquo; API Token</em></span>
+                </div>
+                <div class="settings-row-control">
+                    <input class="settings-input settings-input--mono" type="password" name="REAL_DEBRID_API_KEY"
+                        value="{{ env.REAL_DEBRID_API_KEY ?? '' }}"
+                        autocomplete="off"
+                        onfocus="this.type='text'"
+                        onblur="this.type='password'">
+                </div>
+            </div>
+        </div>
+
+        {# ── Metadata APIs ─────────────────────────────────────────────────── #}
+        <div class="settings-section">
+            <div class="settings-section-title">Metadata APIs</div>
+
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>TMDB API Key</strong>
+                    <span>Used for movies and shows metadata</span>
+                </div>
+                <div class="settings-row-control">
+                    <input class="settings-input settings-input--mono" type="password" name="TMDB_API_KEY"
+                        value="{{ env.TMDB_API_KEY ?? '' }}"
+                        autocomplete="off"
+                        onfocus="this.type='text'"
+                        onblur="this.type='password'">
+                </div>
+            </div>
+
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>MusicBrainz User-Agent</strong>
+                    <span>Identifies your app to the MusicBrainz API</span>
+                </div>
+                <div class="settings-row-control">
+                    <input class="settings-input settings-input--mono" type="text" name="MUSICBRAINZ_USER_AGENT"
+                        value="{{ env.MUSICBRAINZ_USER_AGENT ?? '' }}">
+                </div>
+            </div>
+        </div>
+
+        {# ── Arr Stack ─────────────────────────────────────────────────────── #}
+        <div class="settings-section">
+            <div class="settings-section-title">Arr Stack (optional)</div>
+
+            {% for arr in [
+                { key: 'SONARR',  label: 'Sonarr',  desc: 'TV show management' },
+                { key: 'RADARR',  label: 'Radarr',  desc: 'Movie management' },
+                { key: 'LIDARR',  label: 'Lidarr',  desc: 'Music management' },
+            ] %}
+            <div class="settings-row">
+                <div class="settings-row-label">
+                    <strong>{{ arr.label }}</strong>
+                    <span>{{ arr.desc }}</span>
+                </div>
+                <div class="settings-row-control arr-pair">
+                    <input class="settings-input settings-input--mono" type="text"
+                        name="{{ arr.key }}_URL"
+                        placeholder="http://localhost:…"
+                        value="{{ env[arr.key ~ '_URL'] ?? '' }}">
+                    <div class="arr-pair-sub">
+                        <label>Key</label>
+                        <input class="settings-input settings-input--mono" type="password"
+                            name="{{ arr.key }}_API_KEY"
+                            value="{{ env[arr.key ~ '_API_KEY'] ?? '' }}"
+                            autocomplete="off"
+                            onfocus="this.type='text'"
+                            onblur="this.type='password'">
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="settings-footer">
+            <button type="submit" class="btn-primary" id="save-btn">Save Settings</button>
+        </div>
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelector('form').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    const btn = document.getElementById('save-btn');
+    btn.disabled = true;
+    try {
+        const res = await fetch('/settings', { method: 'POST', body: new FormData(this) });
+        if (res.ok) {
+            showToast('Settings saved.');
+        } else {
+            showToast('Save failed (' + res.status + ').');
+        }
+    } catch {
+        showToast('Save failed (network error).');
+    } finally {
+        btn.disabled = false;
+    }
+});
+</script>
+{% endblock %}

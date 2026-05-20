@@ -303,24 +303,14 @@ class UploadController
     {
         $author = $hints['author'] ?? 'Unknown Author';
         $title  = $hints['title']  ?? $hints['query'] ?? 'Unknown';
-        $series = $hints['series'] ?? null;
 
-        // Use confirmed title and series from metadata when available.
         if ($meta && !empty($meta['title'])) {
             $title = $meta['title'];
-        }
-        if (!$series && $meta && !empty($meta['series'])) {
-            $series = $meta['series'];
         }
 
         $authorDir = $this->safe($author);
         $titleDir  = $this->safe($title);
-        $file      = $this->safe($title) . '.' . $ext;
-
-        if ($series) {
-            return $authorDir . '/' . $this->safe($series) . '/' . $titleDir . '/' . $file;
-        }
-        return $authorDir . '/' . $titleDir . '/' . $file;
+        return $authorDir . '/' . $titleDir . '/' . $this->safe($title) . '.' . $ext;
     }
 
     private function musicPath(string $ext, array $hints, ?array $meta): string

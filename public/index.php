@@ -18,7 +18,8 @@ AppFactory::setContainer($container);
 $app = AppFactory::create();
 
 $app->addRoutingMiddleware();
-$app->addErrorMiddleware((bool) ($_ENV['APP_DEBUG'] ?? false), true, true);
+$debug = $container->get(\App\Services\Settings::class)->getEnv('APP_DEBUG', 'false') === 'true';
+$app->addErrorMiddleware($debug, true, true);
 
 (require __DIR__ . '/../src/Bootstrap/routes.php')($app);
 

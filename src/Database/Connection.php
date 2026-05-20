@@ -53,6 +53,46 @@ class Connection
     private function migrate(): void
     {
         $this->pdo->exec(<<<SQL
+            CREATE TABLE IF NOT EXISTS users (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                username      TEXT    UNIQUE NOT NULL,
+                password_hash TEXT    NOT NULL,
+                role          TEXT    NOT NULL DEFAULT 'user',
+                created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS progress (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id      INTEGER NOT NULL,
+                media_id     INTEGER NOT NULL,
+                position     REAL    NOT NULL DEFAULT 0,
+                duration     REAL    NOT NULL DEFAULT 0,
+                position_cfi TEXT,
+                completed    INTEGER NOT NULL DEFAULT 0,
+                updated_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, media_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_progress_user ON progress(user_id, updated_at);
+
+            CREATE TABLE IF NOT EXISTS settings (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS rd_downloads (
+                id          TEXT PRIMARY KEY,
+                type        TEXT NOT NULL DEFAULT 'torrent',
+                status      TEXT NOT NULL DEFAULT 'queued',
+                rd_status   TEXT,
+                filename    TEXT,
+                category    TEXT,
+                size        INTEGER,
+                progress    REAL DEFAULT 0,
+                error       TEXT,
+                added_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+
             CREATE TABLE IF NOT EXISTS people (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
                 name                TEXT NOT NULL,

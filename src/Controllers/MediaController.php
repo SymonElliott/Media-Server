@@ -6,14 +6,16 @@ namespace App\Controllers;
 
 use App\Database\Connection;
 use App\Services\Metadata\MetadataService;
+use App\Services\RenameService;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 class MediaController
 {
     public function __construct(
-        private readonly Connection $db,
-        private readonly MetadataService $metadata
+        private readonly Connection      $db,
+        private readonly MetadataService $metadata,
+        private readonly ?RenameService  $renamer = null
     ) {}
 
     public function get(Request $request, Response $response, array $args): Response
@@ -46,6 +48,7 @@ class MediaController
         if ($sets) {
             $params[] = $id;
             $this->db->execute('UPDATE media SET ' . implode(', ', $sets) . ' WHERE id = ?', $params);
+            $this->renamer?->renameItem($id);
         }
 
         $response->getBody()->write(json_encode(['updated' => true]));

@@ -113,9 +113,10 @@
 
             <div class="item-hero-actions">
                 {% if item.extension in videoExts %}
-                    <a href="{{ item.stream_url }}" target="_blank" rel="noopener" class="btn-play-hero">
-                        &#9654; Watch
-                    </a>
+                    <video id="video-player" class="hero-video" controls preload="metadata"
+                           src="{{ item.stream_url }}" style="width:100%;max-width:720px;border-radius:6px;">
+                        <a href="{{ item.stream_url }}" download>Download {{ item.extension|upper }}</a>
+                    </video>
                 {% elseif item.extension in audioExts %}
                     <audio id="audio-player" class="hero-audio" controls preload="metadata" src="{{ item.stream_url }}"></audio>
                 {% elseif item.reader_url %}
@@ -225,4 +226,48 @@
     </div>
 
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+    const MEDIA_ID = {{ item.id }};
+    const player = document.getElementById('video-player') || document.getElementById('audio-player');
+    if (!player) return;
+
+    // Resume from saved position
+    fetch('/api/progress/' + MEDIA_ID)
+        .then(function (r) { return r.json(); })
+        .then(function (p) {
+            if (p && p.position > 5 && !p.completed) {
+                player.currentTime = p.position;
+            }
+        })
+        .catch(function () {});
+
+    function saveProgress(completed) {
+        if (!player.duration || player.currentTime < 3) return;
+        fetch('/api/progress/' + MEDIA_ID, {
+            method:  'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({
+                position:  player.currentTime,
+                duration:  player.duration,
+                completed: completed ? 1 : 0,
+            }),
+        }).catch(function () {});
+    }
+
+    let lastSaved = -30;
+    player.addEventListener('timeupdate', function () {
+        if (player.currentTime - lastSaved >= 15) {
+            lastSaved = player.currentTime;
+            saveProgress(false);
+        }
+    });
+    player.addEventListener('pause',  function () { saveProgress(false); });
+    player.addEventListener('ended',  function () { saveProgress(true);  });
+    window.addEventListener('pagehide', function () { saveProgress(false); });
+})();
+</script>
 {% endblock %}

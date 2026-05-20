@@ -148,13 +148,10 @@ class LibraryController
             return $this->booksFileItem($response, $urlPath, $dirPath);
         }
 
-        if (!is_dir($dirPath)) {
-            return $response->withStatus(404);
-        }
-
         $parts = array_values(array_filter(explode('/', $urlPath)));
         $depth = count($parts);
 
+        // Route by depth + DB — directories no longer need to exist for series/book pages.
         return match (true) {
             $depth === 1 => $this->booksAuthorPage($response, $parts[0], $urlPath),
             $depth === 2 => $this->isBooksSeries($parts[0], $parts[1])
@@ -164,126 +161,67 @@ class LibraryController
                 ? $this->booksBookPage($response, $parts[0], $parts[1], $parts[2], $urlPath)
                 : $this->booksVersionPage($response, $parts[0], null, $parts[1], $parts[2], $urlPath),
             $depth === 4 => $this->booksVersionPage($response, $parts[0], $parts[1], $parts[2], $parts[3], $urlPath),
-            default      => $this->browseDirectory($response, 'books', $urlPath, $this->dirEntries($dirPath, $urlPath)),
+            default      => is_dir($dirPath)
+                ? $this->browseDirectory($response, 'books', $urlPath, $this->dirEntries($dirPath, $urlPath))
+                : $response->withStatus(404),
         };
     }
 
-    /** True when Author/Name has DB entries as a series (not a book title). */
+    /** True when the DB has books tagged with series = $name for this author. */
     private function isBooksSeries(string $author, string $name): bool
     {
-        $count = (int) ($this->db->first(
+        return (int) ($this->db->first(
             'SELECT COUNT(*) as n FROM media
              WHERE type IN ("books","audiobooks") AND author = ? AND series = ?',
             [$author, $name]
-        )['n'] ?? 0);
-
-        if ($count > 0) {
-            return true;
-        }
-
-        // Filesystem fallback when DB is empty.
-        // New structure: Author/Series/Book/files  — a Series dir contains only
-        // subdirs (Books); a Book dir has files directly inside (possibly alongside
-        // narrator subdirs for MP3 chapters). So: if the dir has any direct files
-        // it is a Book, not a Series.
-        $path = $this->libraryPath . '/books/' . $author . '/' . $name;
-        if (!is_dir($path)) {
-            return false;
-        }
-        $hasDirs  = false;
-        foreach (scandir($path) as $entry) {
-            if ($entry === '.' || $entry === '..' || $entry === '.DS_Store') {
-                continue;
-            }
-            if (is_file($path . '/' . $entry)) {
-                return false; // has direct files → it's a Book, not a Series
-            }
-            if (is_dir($path . '/' . $entry)) {
-                $hasDirs = true;
-            }
-        }
-        return $hasDirs; // only subdirs → treat as Series
+        )['n'] ?? 0) > 0;
     }
 
     /** /library/books/Author */
     private function booksAuthorPage(Response $response, string $author, string $urlPath): Response
     {
-        $dirPath = $this->libraryPath . '/books/' . $urlPath;
-        $entries = $this->dirEntries($dirPath, $urlPath);
-
         $person = $this->db->first(
             'SELECT id, slug, image, bio FROM people WHERE name = ? AND role = "author" LIMIT 1',
             [$author]
         );
 
-        // Enrich directory entries with DB poster + item-type info
-        $series = array_column(
-            $this->db->query(
-                'SELECT series as name, COUNT(DISTINCT book_name) as book_count, MAX(poster) as poster
-                 FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NOT NULL
-                 GROUP BY series',
-                [$author]
-            ),
-            null, 'name'
-        );
-        $books = array_column(
-            $this->db->query(
-                'SELECT book_name as name, MAX(poster) as poster,
-                        COUNT(DISTINCT book_version) as version_count
-                 FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NULL
-                   AND book_name IS NOT NULL
-                 GROUP BY book_name',
-                [$author]
-            ),
-            null, 'name'
+        $seriesRows = $this->db->query(
+            'SELECT series as name, COUNT(DISTINCT book_name) as book_count, MAX(poster) as poster
+             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NOT NULL
+             GROUP BY series ORDER BY series',
+            [$author]
         );
 
-        // Build a map of which top-level directories hold books that already belong to
-        // a named series. Such directories will be suppressed as duplicate entries —
-        // their books are already counted under the matching series entry.
-        $dirToSeries = [];
-        $pathRows = $this->db->query(
-            'SELECT SUBSTR(path, LENGTH(:base) + 2) as sub, series
-             FROM media
-             WHERE type IN ("books","audiobooks") AND author = :author
-               AND path LIKE :like AND series IS NOT NULL',
-            ['base' => $dirPath, 'author' => $author, 'like' => $dirPath . '/%']
+        $bookRows = $this->db->query(
+            'SELECT book_name as name, MAX(poster) as poster,
+                    COUNT(DISTINCT book_version) as version_count
+             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NULL
+               AND book_name IS NOT NULL
+             GROUP BY book_name ORDER BY book_name',
+            [$author]
         );
-        foreach ($pathRows as $row) {
-            $topDir = explode('/', $row['sub'])[0];
-            if (!isset($dirToSeries[$topDir])) {
-                $dirToSeries[$topDir] = $row['series'];
-            }
+
+        $entries = [];
+        foreach ($seriesRows as $s) {
+            $entries[] = [
+                'name'       => $s['name'],
+                'is_dir'     => true,
+                'item_type'  => 'series',
+                'poster'     => $s['poster'],
+                'book_count' => $s['book_count'],
+                'url_path'   => rawurlencode($author) . '/' . rawurlencode($s['name']),
+            ];
         }
-
-        foreach ($entries as &$entry) {
-            if (!$entry['is_dir']) {
-                continue;
-            }
-            $name = $entry['name'];
-            if (isset($series[$name])) {
-                // This directory IS the series directory.
-                $entry['poster']     = $series[$name]['poster'];
-                $entry['item_type']  = 'series';
-                $entry['book_count'] = $series[$name]['book_count'];
-                if (isset($books[$name])) {
-                    $entry['has_standalone'] = true;
-                }
-            } elseif (isset($books[$name])) {
-                $entry['poster']        = $books[$name]['poster'];
-                $entry['item_type']     = 'book';
-                $entry['version_count'] = $books[$name]['version_count'];
-            }
-            // Mark directories that hold series books stored outside the series dir.
-            // These will be filtered out below to avoid showing them as orphan entries.
-            if (!isset($entry['item_type']) && isset($dirToSeries[$name]) && isset($series[$dirToSeries[$name]])) {
-                $entry['_suppress'] = true;
-            }
+        foreach ($bookRows as $b) {
+            $entries[] = [
+                'name'          => $b['name'],
+                'is_dir'        => true,
+                'item_type'     => 'book',
+                'poster'        => $b['poster'],
+                'version_count' => $b['version_count'],
+                'url_path'      => rawurlencode($author) . '/' . rawurlencode($b['name']),
+            ];
         }
-        unset($entry);
-
-        // Remove orphan book directories whose books belong to an already-listed series.
-        $entries = array_values(array_filter($entries, fn($e) => empty($e['_suppress'])));
 
         $html = $this->twig->render('library/books_detail.html.twig', [
             'type'    => 'books',
@@ -303,89 +241,33 @@ class LibraryController
     /** /library/books/Author/Series */
     private function booksSeriesPage(Response $response, string $author, string $seriesName, string $urlPath): Response
     {
-        $dirPath = $this->libraryPath . '/books/' . $urlPath;
-        $entries = $this->dirEntries($dirPath, $urlPath);
-
-        $bookRows = array_column(
-            $this->db->query(
-                'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
-                        MIN(series_order) as series_order
-                 FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
-                   AND book_name IS NOT NULL
-                 GROUP BY book_name ORDER BY series_order ASC NULLS LAST, book_name ASC',
-                [$author, $seriesName]
-            ),
-            null, 'name'
+        $bookRows = $this->db->query(
+            'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
+                    MIN(series_order) as series_order
+             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
+               AND book_name IS NOT NULL
+             GROUP BY book_name ORDER BY series_order ASC NULLS LAST, book_name ASC',
+            [$author, $seriesName]
         );
 
-        foreach ($entries as &$entry) {
-            if (!$entry['is_dir']) {
-                continue;
-            }
-            if (isset($bookRows[$entry['name']])) {
-                $b = $bookRows[$entry['name']];
-                $entry['poster']       = $b['poster'];
-                $entry['series_order'] = $b['series_order'];
-                $entry['year']         = $b['year'];
-            }
-        }
-        unset($entry);
-
-        // Include DB books that share this series name but live outside the series directory.
-        // This handles the case where books are stored as Author/BookName/ but tagged series=X.
-        $fsNames        = array_flip(array_column($entries, 'name'));
-        $libraryBase    = $this->libraryPath . '/books/';
-        $orphanPaths    = $this->db->query(
-            'SELECT book_name, MIN(path) as sample_path
-             FROM media
-             WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
-               AND book_name IS NOT NULL AND path NOT LIKE ?
-             GROUP BY book_name',
-            [$author, $seriesName, $dirPath . '/%']
-        );
-        foreach ($orphanPaths as $orphan) {
-            $bookName = $orphan['book_name'];
-            if (isset($fsNames[$bookName])) {
-                continue; // already present from filesystem scan
-            }
-            $b = $bookRows[$bookName] ?? null;
-            if (!$b) {
-                continue;
-            }
-            $filePath = $orphan['sample_path'];
-            if (!str_starts_with($filePath, $libraryBase)) {
-                continue;
-            }
-            $rel         = substr($filePath, strlen($libraryBase));
-            $pathParts   = explode('/', $rel);
-            $bookUrlPath = implode('/', array_slice($pathParts, 0, 2)); // Author/BookDir
-
+        $entries = [];
+        foreach ($bookRows as $b) {
             $entries[] = [
-                'name'         => $bookName,
+                'name'         => $b['name'],
                 'is_dir'       => true,
-                'url_path'     => $bookUrlPath,
+                'item_type'    => 'book',
                 'poster'       => $b['poster'],
                 'series_order' => $b['series_order'],
                 'year'         => $b['year'],
-                'size'         => null,
+                'url_path'     => rawurlencode($author) . '/' . rawurlencode($b['name']),
             ];
         }
-
-        usort($entries, function (array $a, array $b): int {
-            $ao = isset($a['series_order']) && $a['series_order'] !== null ? (float) $a['series_order'] : null;
-            $bo = isset($b['series_order']) && $b['series_order'] !== null ? (float) $b['series_order'] : null;
-            if ($ao === null && $bo === null) return strnatcasecmp($a['name'], $b['name']);
-            if ($ao === null) return 1;
-            if ($bo === null) return -1;
-            return $ao <=> $bo;
-        });
 
         $seriesMeta = $this->db->first(
             'SELECT * FROM series_meta WHERE series = ? AND author = ? LIMIT 1',
             [$seriesName, $author]
         );
 
-        // Include a standalone book that shares the series name (series IS NULL, book_name = series).
         $standaloneBook = $this->db->first(
             'SELECT * FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ? AND series IS NULL LIMIT 1',
             [$author, $seriesName]
@@ -414,8 +296,24 @@ class LibraryController
         string $bookName,
         string $urlPath
     ): Response {
-        $dirPath   = $this->libraryPath . '/books/' . $urlPath;
-        $rawScan   = $this->dirEntries($dirPath, $urlPath);
+        $dirPath = $this->libraryPath . '/books/' . $urlPath;
+
+        // When the URL-derived path doesn't exist (flat layout), find the real directory via DB.
+        if (!is_dir($dirPath)) {
+            $sampleRow = $this->db->first(
+                'SELECT path FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ?
+                 ORDER BY book_version IS NULL DESC, path ASC LIMIT 1',
+                [$author, $bookName]
+            );
+            if ($sampleRow) {
+                $realDir = dirname($sampleRow['path']);
+                $relDir  = substr($realDir, strlen($this->libraryPath . '/books/'));
+                $dirPath = $realDir;
+                $urlPath = $relDir;
+            }
+        }
+
+        $rawScan = is_dir($dirPath) ? $this->dirEntries($dirPath, $urlPath) : [];
 
         // Pull book metadata from DB (any version will have the same enriched data)
         $entity = $this->db->first(
@@ -1005,12 +903,9 @@ class LibraryController
             return [];
         }
 
-        $libraryBase   = $this->libraryPath . '/books/';
-        $seriesDirPath = $libraryBase . $author . '/' . $seriesName;
-
         $books = $this->db->query(
             'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
-                    MIN(series_order) as series_order, MIN(path) as sample_path
+                    MIN(series_order) as series_order
              FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
                AND book_name IS NOT NULL
              GROUP BY book_name ORDER BY series_order ASC NULLS LAST, book_name ASC',
@@ -1018,17 +913,7 @@ class LibraryController
         );
 
         foreach ($books as &$book) {
-            $samplePath = $book['sample_path'] ?? '';
-            unset($book['sample_path']);
-            if (!$samplePath || !str_starts_with($samplePath, $libraryBase)) {
-                $book['url_path'] = $author . '/' . $book['name'];
-                continue;
-            }
-            $relPath   = substr($samplePath, strlen($libraryBase));
-            $pathParts = explode('/', $relPath);
-            $book['url_path'] = str_starts_with($samplePath, $seriesDirPath . '/')
-                ? implode('/', array_slice($pathParts, 0, 3))
-                : implode('/', array_slice($pathParts, 0, 2));
+            $book['url_path'] = rawurlencode($author) . '/' . rawurlencode($book['name']);
         }
         unset($book);
 

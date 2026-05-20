@@ -1,0 +1,230 @@
+{% extends 'layout.html.twig' %}
+
+{% block title %}Users — MediaServer{% endblock %}
+
+{% block content %}
+<style>
+    .users-page { max-width: 660px; }
+    .users-page h1 { margin-bottom: 2rem; }
+
+    .users-section {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 1.75rem;
+    }
+    .users-section-title {
+        font-size: 0.72rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.8px;
+        color: var(--muted);
+        padding: 0.85rem 1.25rem 0.6rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .user-row {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.8rem 1.25rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .user-row:last-child { border-bottom: none; }
+    .user-avatar {
+        width: 32px; height: 32px;
+        border-radius: 50%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 0.8rem; font-weight: 600; color: var(--accent);
+        flex-shrink: 0;
+        text-transform: uppercase;
+    }
+    .user-info { flex: 1; }
+    .user-info strong { font-size: 0.9rem; font-weight: 500; }
+    .user-info span { font-size: 0.78rem; color: var(--muted); margin-left: 0.5rem; }
+    .user-badge {
+        font-size: 0.7rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 4px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+    .user-badge--admin { background: rgba(91,156,246,0.15); color: var(--accent); }
+    .user-badge--user  { background: var(--surface2); color: var(--muted); }
+    .btn-delete {
+        background: none;
+        border: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.8rem;
+        padding: 0.25rem 0.65rem;
+        border-radius: 5px;
+        cursor: pointer;
+        transition: border-color 0.15s, color 0.15s;
+    }
+    .btn-delete:hover { border-color: #ef4444; color: #ef4444; }
+    .btn-delete:disabled { opacity: 0.3; cursor: default; }
+
+    .add-user-form {
+        padding: 1.1rem 1.25rem;
+        display: flex;
+        gap: 0.6rem;
+        flex-wrap: wrap;
+        align-items: flex-end;
+    }
+    .add-user-form .field { flex: 1; min-width: 120px; }
+    .add-user-form label { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.3rem; }
+    .add-user-form input, .add-user-form select {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--text);
+        padding: 0.4rem 0.65rem;
+        font-size: 0.85rem;
+        font-family: inherit;
+    }
+    .add-user-form input:focus, .add-user-form select:focus { outline: none; border-color: var(--accent); }
+    .add-user-form select option { background: var(--surface2); }
+
+    .pw-form { padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: 0.85rem; }
+    .pw-field label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem; }
+    .pw-field input {
+        width: 100%;
+        background: var(--surface2);
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        color: var(--text);
+        padding: 0.45rem 0.75rem;
+        font-size: 0.88rem;
+        font-family: inherit;
+    }
+    .pw-field input:focus { outline: none; border-color: var(--accent); }
+    .pw-footer { display: flex; justify-content: flex-end; }
+</style>
+
+<div class="users-page">
+    <h1>Users</h1>
+
+    {# ── User list (admin only) ──────────────────────────────────────────── #}
+    <div class="users-section">
+        <div class="users-section-title">All Users</div>
+
+        {% for user in users %}
+        <div class="user-row" data-user-id="{{ user.id }}">
+            <div class="user-avatar">{{ user.username|slice(0,1) }}</div>
+            <div class="user-info">
+                <strong>{{ user.username }}</strong>
+                {% if user.id == authUser.id %}<span>(you)</span>{% endif %}
+            </div>
+            <span class="user-badge user-badge--{{ user.role }}">{{ user.role }}</span>
+            <button class="btn-delete"
+                onclick="deleteUser({{ user.id }}, '{{ user.username|e('js') }}')"
+                {% if user.id == authUser.id %}disabled title="Cannot delete your own account"{% endif %}>
+                Remove
+            </button>
+        </div>
+        {% endfor %}
+
+        <div class="add-user-form">
+            <div class="field">
+                <label>Username</label>
+                <input type="text" id="new-username" placeholder="username" autocomplete="off">
+            </div>
+            <div class="field">
+                <label>Password</label>
+                <input type="password" id="new-password" placeholder="min 8 chars" autocomplete="new-password">
+            </div>
+            <div class="field" style="flex: 0 0 auto; min-width: 100px;">
+                <label>Role</label>
+                <select id="new-role">
+                    <option value="user">User</option>
+                    <option value="admin">Admin</option>
+                </select>
+            </div>
+            <button class="btn-primary" onclick="addUser()" style="flex-shrink:0;margin-bottom:1px;">Add User</button>
+        </div>
+    </div>
+
+    {# ── Change password ─────────────────────────────────────────────────── #}
+    <div class="users-section">
+        <div class="users-section-title">Change Password</div>
+        <div class="pw-form">
+            <div class="pw-field">
+                <label>Current password</label>
+                <input type="password" id="pw-current" autocomplete="current-password">
+            </div>
+            <div class="pw-field">
+                <label>New password</label>
+                <input type="password" id="pw-new" autocomplete="new-password" placeholder="min 8 chars">
+            </div>
+            <div class="pw-footer">
+                <button class="btn-primary" onclick="changePassword()">Update Password</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function addUser() {
+    const username = document.getElementById('new-username').value.trim();
+    const password = document.getElementById('new-password').value;
+    const role     = document.getElementById('new-role').value;
+    if (!username || password.length < 8) {
+        showToast('Username required and password must be at least 8 characters.');
+        return;
+    }
+    const res  = await fetch('/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ username, password, role }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+        showToast('User added.');
+        setTimeout(() => location.reload(), 800);
+    } else {
+        showToast(data.error || 'Failed to add user.');
+    }
+}
+
+async function deleteUser(id, username) {
+    if (!confirm(`Remove user "${username}"? This cannot be undone.`)) return;
+    const res  = await fetch(`/users/${id}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (res.ok) {
+        document.querySelector(`.user-row[data-user-id="${id}"]`)?.remove();
+        showToast('User removed.');
+    } else {
+        showToast(data.error || 'Failed to remove user.');
+    }
+}
+
+async function changePassword() {
+    const current = document.getElementById('pw-current').value;
+    const newPw   = document.getElementById('pw-new').value;
+    if (!current || newPw.length < 8) {
+        showToast('Current password required and new password must be at least 8 characters.');
+        return;
+    }
+    const res  = await fetch('/users/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ current_password: current, new_password: newPw }),
+    });
+    const data = await res.json();
+    if (res.ok) {
+        showToast('Password updated.');
+        document.getElementById('pw-current').value = '';
+        document.getElementById('pw-new').value = '';
+    } else {
+        showToast(data.error || 'Failed to update password.');
+    }
+}
+</script>
+{% endblock %}
