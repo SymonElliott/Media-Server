@@ -41,6 +41,14 @@ else
     DC="docker compose"
 fi
 
+# ── Detect if Docker needs sudo (Synology runs dockerd as root) ───────────────
+if docker info &>/dev/null 2>&1; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
+DC="$SUDO $DC"
+
 TIMESTAMP="$(date '+%Y-%m-%d %H:%M:%S')"
 echo ""
 echo "[$TIMESTAMP] ── deploy.sh ──────────────────────────────────────────"
