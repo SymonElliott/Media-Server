@@ -606,6 +606,7 @@ class LibraryController
             'scanning'          => (bool) ($state['running'] ?? false),
             'phase'             => $state['phase'] ?? null,
             'current_type'      => $state['current_type'] ?? null,
+            'current_scan_name' => $state['current_scan_name'] ?? null,
             'current_item_id'   => $state['current_item_id'] ?? null,
             'current_group'     => $state['current_group'] ?? null,
             'current_item_name' => $state['current_item_name'] ?? null,

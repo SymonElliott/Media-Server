@@ -25,12 +25,19 @@ class LibraryScanner
 
     private int    $progressWriteCounter = 0;
     private ?array $typeTotals           = null;
+    private ?string $currentScanName     = null;
 
     public function __construct(
         private readonly Connection $db,
         private readonly string $libraryPath,
         private readonly ?string $stateFile = null
     ) {}
+
+    /** Inject pre-counted file totals (e.g. from DB row counts) so writeState() can report them. */
+    public function setTypeTotals(array $totals): void
+    {
+        $this->typeTotals = $totals;
+    }
 
     /** Count files per type (or just one type). Stored internally so writeState() can include them. */
     public function countFiles(?string $onlyType = null): array
@@ -65,6 +72,7 @@ class LibraryScanner
                 continue;
             }
 
+            $this->currentScanName = null;
             $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
 
             // When a group is specified, only scan that subdirectory (e.g. one artist/author/show)
@@ -95,6 +103,16 @@ class LibraryScanner
                 $ext = strtolower($file->getExtension());
                 if (!in_array($ext, self::EXTENSIONS[$type], true)) {
                     continue;
+                }
+
+                // Track the top-level directory (artist/author/show/movie-folder) and
+                // emit a state update when we enter a new one — gives real-time visibility
+                // into what the scanner is currently indexing.
+                $relPath = ltrim(substr($file->getPath(), strlen($scanRoot)), '/');
+                $topDir  = $relPath !== '' ? explode('/', $relPath)[0] : null;
+                if ($topDir !== null && $topDir !== $this->currentScanName) {
+                    $this->currentScanName = $topDir;
+                    $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
                 }
 
                 $scannedPaths[] = $file->getRealPath();
@@ -239,6 +257,9 @@ class LibraryScanner
             }
             if ($this->typeTotals !== null && !isset($data['type_totals'])) {
                 $data['type_totals'] = $this->typeTotals;
+            }
+            if ($this->currentScanName !== null && !isset($data['current_scan_name'])) {
+                $data['current_scan_name'] = $this->currentScanName;
             }
             file_put_contents($this->stateFile, json_encode($data), LOCK_EX);
         }

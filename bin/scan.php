@@ -37,9 +37,10 @@ $people = new App\Services\PeopleService($db, $tmdb, $audnexus, $openLib, $http,
 
 // Use existing DB row counts as a fast estimate for the progress total —
 // avoids a full NAS filesystem traversal before the scan even starts.
-$typeRows = $db->query('SELECT type, COUNT(*) as n FROM media GROUP BY type');
+$typeRows   = $db->query('SELECT type, COUNT(*) as n FROM media GROUP BY type');
 $typeTotals = array_column($typeRows, 'n', 'type');
 $fileTotal  = array_sum($typeTotals);
+$scanner->setTypeTotals($typeTotals);
 
 file_put_contents($stateFile, json_encode([
     'running'      => true,

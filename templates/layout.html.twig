@@ -1316,6 +1316,7 @@
                     if (d.scanning) {
                         wasScanning = true;
                         const isMeta      = d.phase === 'metadata';
+                        const isPeople    = d.phase === 'people';
                         const typeTotals  = d.type_totals ?? {};
                         const counts      = d.counts      ?? {};
                         const cap         = s => s.charAt(0).toUpperCase() + s.slice(1);
@@ -1359,12 +1360,12 @@
                                     : '…';
                                 scanBtnText(`Metadata · ${cap(d.current_type)}${detail}`);
                             } else {
-                                const total = typeTotals[d.current_type] ?? 0;
-                                const pct   = total > 0
-                                    ? ' ' + Math.min(100, Math.round((counts[d.current_type] ?? 0) / total * 100)) + '%'
-                                    : '';
-                                scanBtnText(`Indexing ${cap(d.current_type)}…${pct}`);
+                                const found = (d.stats?.added ?? 0) + (d.stats?.updated ?? 0);
+                                const foundStr = found > 0 ? ` · ${found} found` : '';
+                                scanBtnText(`Indexing ${cap(d.current_type)}…${foundStr}`);
                             }
+                        } else if (d.phase === 'people') {
+                            scanBtnText('Syncing people…');
                         } else {
                             scanBtnText('Starting…');
                         }
@@ -1372,9 +1373,14 @@
                         // ── Item name label ──
                         const lbl = document.getElementById('scan-item-label');
                         if (lbl) {
-                            const name = d.current_item_name || d.current_group || null;
-                            if (isMeta && name) {
-                                lbl.textContent  = name;
+                            let labelText = null;
+                            if (d.phase === 'metadata') {
+                                labelText = d.current_item_name || d.current_group || null;
+                            } else if (d.phase === 'scanning') {
+                                labelText = d.current_scan_name || null;
+                            }
+                            if (labelText) {
+                                lbl.textContent   = labelText;
                                 lbl.style.display = 'block';
                             } else {
                                 lbl.style.display = 'none';
@@ -1382,9 +1388,9 @@
                         }
 
                         // ── Per-item spinners ──
-                        const newItemId  = d.current_item_id  ?? null;
-                        const newGroup   = d.current_group    ?? null;
-                        const newScanName = d.current_item_name ?? null;
+                        const newItemId   = d.current_item_id  ?? null;
+                        const newGroup    = d.current_group    ?? null;
+                        const newScanName = d.current_scan_name ?? null;
 
                         if (newItemId !== spinItemId) {
                             if (spinItemId !== null) clearSpinner(`[data-media-id="${spinItemId}"]`, true);
@@ -1412,7 +1418,13 @@
                         if (wasScanning) {
                             wasScanning = false;
                             eachScanBtn(b => { b.textContent = '✓ Scan complete'; });
-                            setTimeout(() => { eachScanBtn(b => { b.textContent = getScanBtnLabel(); }); }, 3000);
+                            // Auto-reload the library browse page so new items appear immediately
+                            const onLibrary = window.location.pathname.startsWith('/library/');
+                            if (onLibrary) {
+                                setTimeout(() => { window.location.reload(); }, 1200);
+                            } else {
+                                setTimeout(() => { eachScanBtn(b => { b.textContent = getScanBtnLabel(); }); }, 3000);
+                            }
                         } else {
                             eachScanBtn(b => { b.textContent = getScanBtnLabel(); });
                         }
