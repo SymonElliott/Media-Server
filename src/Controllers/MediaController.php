@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Database\Connection;
+use App\Services\AppLogger;
 use App\Services\Metadata\MetadataService;
 use App\Services\RenameService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -15,7 +16,8 @@ class MediaController
     public function __construct(
         private readonly Connection      $db,
         private readonly MetadataService $metadata,
-        private readonly ?RenameService  $renamer = null
+        private readonly ?RenameService  $renamer = null,
+        private readonly ?AppLogger      $log = null
     ) {}
 
     public function get(Request $request, Response $response, array $args): Response
@@ -31,7 +33,7 @@ class MediaController
     public function update(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];
-        $item = $this->db->first('SELECT id FROM media WHERE id = ?', [$id]);
+        $item = $this->db->first('SELECT id, title, type FROM media WHERE id = ?', [$id]);
         if (!$item) return $response->withStatus(404);
 
         $body    = json_decode((string) $request->getBody(), true) ?? [];
@@ -49,6 +51,13 @@ class MediaController
             $params[] = $id;
             $this->db->execute('UPDATE media SET ' . implode(', ', $sets) . ' WHERE id = ?', $params);
             $this->renamer?->renameItem($id);
+            $this->log?->info('media', sprintf(
+                'Updated "%s" (id=%d, type=%s): %s',
+                $item['title'] ?? 'unknown',
+                $id,
+                $item['type'] ?? '?',
+                implode(', ', array_keys(array_intersect_key($body, array_flip($allowed))))
+            ));
         }
 
         $response->getBody()->write(json_encode(['updated' => true]));
@@ -58,13 +67,19 @@ class MediaController
     public function delete(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];
-        $item = $this->db->first('SELECT path FROM media WHERE id = ?', [$id]);
+        $item = $this->db->first('SELECT path, title, type FROM media WHERE id = ?', [$id]);
         if (!$item) return $response->withStatus(404);
 
         if (file_exists($item['path'])) {
             unlink($item['path']);
         }
         $this->db->execute('DELETE FROM media WHERE id = ?', [$id]);
+        $this->log?->info('media', sprintf(
+            'Deleted "%s" (id=%d, type=%s)',
+            $item['title'] ?? basename($item['path']),
+            $id,
+            $item['type'] ?? '?'
+        ));
 
         $response->getBody()->write(json_encode(['deleted' => true]));
         return $response->withHeader('Content-Type', 'application/json');
@@ -111,7 +126,10 @@ class MediaController
             $this->db->execute("DELETE FROM media WHERE $col = ?", [$name]);
         }
 
-        $response->getBody()->write(json_encode(['deleted' => count($items)]));
+        $count = count($items);
+        $this->log?->info('media', sprintf('Deleted group "%s" (%s, %d items)', $name, $type, $count));
+
+        $response->getBody()->write(json_encode(['deleted' => $count]));
         return $response->withHeader('Content-Type', 'application/json');
     }
 
@@ -150,6 +168,7 @@ class MediaController
         }
 
         $this->metadata->applyExternalMatch($id, $source, $externalId);
+        $this->log?->info('metadata', "Applied match for id={$id}: {$source}/{$externalId}");
 
         $response->getBody()->write(json_encode(['applied' => true]));
         return $response->withHeader('Content-Type', 'application/json');

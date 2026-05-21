@@ -17,8 +17,7 @@ $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
-$settings    = new App\Services\Settings($db);
-$libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
+$libraryPath   = $root . '/library';
 $audiobooksDir = $libraryPath . '/audiobooks';
 $booksDir      = $libraryPath . '/books';
 $dryRun        = in_array('--dry-run', $argv, true);

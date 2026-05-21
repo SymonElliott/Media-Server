@@ -105,17 +105,6 @@
 
             <div class="settings-row">
                 <div class="settings-row-label">
-                    <strong>Library Path</strong>
-                    <span>Root directory of your media library inside the container</span>
-                </div>
-                <div class="settings-row-control">
-                    <input class="settings-input settings-input--mono" type="text" name="MEDIA_PATH"
-                        value="{{ env.MEDIA_PATH ?? '' }}">
-                </div>
-            </div>
-
-            <div class="settings-row">
-                <div class="settings-row-label">
                     <strong>Auto-rename files</strong>
                     <span>Rename files and directories to the canonical scheme after any metadata update</span>
                 </div>
@@ -208,11 +197,112 @@
             <button type="submit" class="btn-primary" id="save-btn">Save Settings</button>
         </div>
     </form>
+
+    {# ── System / Updates ─────────────────────────────────────────────────── #}
+    <div class="settings-section" id="system-section">
+        <div class="settings-section-title">System</div>
+
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:0.75rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+                <div class="settings-row-label">
+                    <strong>Application update</strong>
+                    <span id="version-info" style="font-family:monospace;font-size:0.78rem;">Loading…</span>
+                </div>
+                <button class="btn-refresh" id="pull-btn" onclick="runGitPull()">↓ Pull latest</button>
+            </div>
+            <div id="pull-output" style="display:none;width:100%;">
+                <div id="pull-terminal" style="
+                    background:#0d0d0d;border:1px solid var(--border);border-radius:6px;
+                    padding:0.75rem 1rem;font-family:ui-monospace,'SFMono-Regular',Menlo,Monaco,Consolas,monospace;
+                    font-size:0.78rem;line-height:1.6;color:#c9d1d9;white-space:pre-wrap;word-break:break-all;
+                    max-height:220px;overflow-y:auto;
+                "></div>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
 {% block scripts %}
 <script>
+// ── Version info ──────────────────────────────────────────────────────────────
+(async function loadVersion() {
+    try {
+        const d = await fetch('/system/version').then(r => r.json());
+        const el = document.getElementById('version-info');
+        if (d.commit) {
+            el.textContent = `${d.branch}@${d.commit} — ${d.message}`;
+            el.title = d.date;
+        } else {
+            el.textContent = 'Not a git repository';
+        }
+    } catch {
+        document.getElementById('version-info').textContent = 'Could not load version info';
+    }
+})();
+
+// ── Git pull ──────────────────────────────────────────────────────────────────
+async function runGitPull() {
+    const btn      = document.getElementById('pull-btn');
+    const output   = document.getElementById('pull-output');
+    const terminal = document.getElementById('pull-terminal');
+    const verEl    = document.getElementById('version-info');
+
+    btn.disabled     = true;
+    btn.textContent  = 'Updating…';
+    terminal.innerHTML = '';
+    output.style.display = 'block';
+
+    try {
+        const res = await fetch('/system/git-pull', { method: 'POST' });
+        const d   = await res.json();
+
+        // Render each step
+        for (const step of (d.steps ?? [])) {
+            const header = document.createElement('div');
+            header.style.cssText = 'font-weight:600;margin-top:.5rem;margin-bottom:.15rem;';
+            const icon = step.success ? '✓' : '✗';
+            const col  = step.success ? '#3fb950' : '#f85149';
+            header.innerHTML = `<span style="color:${col}">${icon}</span> ${escHtml(step.label)}`;
+            terminal.appendChild(header);
+
+            const body = document.createElement('div');
+            body.style.cssText = 'color:#8b949e;padding-left:1.2rem;';
+            body.textContent = step.output;
+            terminal.appendChild(body);
+        }
+
+        // Rebuild warning
+        if (d.needs_rebuild) {
+            const warn = document.createElement('div');
+            warn.style.cssText = 'margin-top:.75rem;padding:.5rem .75rem;background:rgba(240,136,62,.1);border:1px solid rgba(240,136,62,.3);border-radius:4px;color:#f0883e;font-size:.8rem;';
+            warn.textContent = '⚠ Dockerfile or composer.json changed — run docker compose up -d --build to apply fully.';
+            terminal.appendChild(warn);
+        }
+
+        // Already up to date
+        if (d.already_up_to_date && !d.needs_rebuild) {
+            terminal.style.color = '#6e7681';
+        }
+
+        // Update version chip
+        if (d.commit) {
+            verEl.textContent = `${d.branch}@${d.commit} — ${d.message}`;
+            verEl.title = d.date ?? '';
+        }
+    } catch (err) {
+        terminal.textContent = 'Request failed: ' + err.message;
+        terminal.style.color = '#f85149';
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = '↓ Pull latest';
+    }
+}
+
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 // Use getElementById to avoid accidentally targeting the nav logout form
 document.getElementById('settings-form').addEventListener('submit', async function (e) {
     e.preventDefault();

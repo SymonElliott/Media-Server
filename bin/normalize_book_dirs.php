@@ -18,8 +18,7 @@ require $root . '/vendor/autoload.php';
 $dryRun   = in_array('--dry-run', $argv, true);
 
 $db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
-$settings = new App\Services\Settings($db);
-$booksDir = $settings->getEnv('MEDIA_PATH', '/media') . '/books';
+$booksDir = $root . '/library/books';
 
 if (!is_dir($booksDir)) {
     fwrite(STDERR, "Books directory not found: $booksDir\n");

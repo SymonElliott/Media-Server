@@ -21,7 +21,7 @@ if (!$id) exit(1);
 
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $settings    = new App\Services\Settings($db);
-$libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
+$libraryPath = $root . '/library';
 $http        = new GuzzleHttp\Client(['timeout' => 30, 'http_errors' => false]);
 $rd          = new App\Services\RealDebridService($http, $settings->getEnv('REAL_DEBRID_API_KEY'));
 

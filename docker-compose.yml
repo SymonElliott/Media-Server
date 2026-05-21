@@ -17,11 +17,12 @@ services:
       # works without vendor/ being committed to git.
       - vendor:/var/www/html/vendor
 
-      # ── Your Synology media share ────────────────────────────────────────────
-      # Change /volume1/media/library to wherever your library lives on the NAS.
-      - /volume1/media/library:/media    # Synology shared folder
-      # - /mnt/user/media:/media         # Unraid
-      # - ./sample-library:/media        # local dev
+      # ── Your media library ───────────────────────────────────────────────────
+      # Mount your media share to /var/www/html/library inside the container.
+      # Change the left side to wherever your library lives on the host.
+      - /volume1/media/library:/var/www/html/library    # Synology shared folder
+      # - /mnt/user/media:/var/www/html/library         # Unraid
+      # - ./sample-library:/var/www/html/library        # local dev
 
       # ── Persistent data (DB + cache + cover art) ─────────────────────────────
       - ./data/storage:/var/www/html/storage

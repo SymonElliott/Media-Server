@@ -64,6 +64,8 @@ return function (App $app): void {
     $app->get('/scan/log', LibraryController::class . ':scanLog');
     $app->post('/scan/reset', LibraryController::class . ':resetScan');
     $app->get('/logs', LibraryController::class . ':logsPage');
+    $app->get('/api/logs', LibraryController::class . ':appLog');
+    $app->post('/api/logs/clear', LibraryController::class . ':clearAppLog');
 
     $app->post('/metadata/refresh/{id}', LibraryController::class . ':refreshMetadata');
     $app->post('/metadata/refresh-series', LibraryController::class . ':refreshSeriesMetadata');
@@ -72,6 +74,8 @@ return function (App $app): void {
 
     $app->get('/settings', SettingsController::class . ':index');
     $app->post('/settings', SettingsController::class . ':save');
+    $app->post('/system/git-pull', SettingsController::class . ':gitPull');
+    $app->get('/system/version', SettingsController::class . ':version');
 
     $app->get('/people', PeopleController::class . ':browse');
     $app->get('/people/{slug}', PeopleController::class . ':detail');

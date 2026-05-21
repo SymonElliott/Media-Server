@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Controllers\AuthController;
+use App\Controllers\HomeController;
 use App\Controllers\ProgressController;
 use App\Controllers\LibraryController;
 use App\Controllers\MediaController;
@@ -20,6 +21,7 @@ use App\Services\Metadata\MetadataService;
 use App\Services\Metadata\MusicBrainzProvider;
 use App\Services\Metadata\OpenLibraryProvider;
 use App\Services\Metadata\TmdbProvider;
+use App\Services\AppLogger;
 use App\Services\RealDebridService;
 use App\Services\RenameService;
 use App\Services\Settings;
@@ -28,7 +30,16 @@ use GuzzleHttp\Client;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
+// Library is always the `library/` directory at the application root.
+// Mount your media there in docker-compose (or create a symlink for local dev).
+// No user-configurable path setting is needed.
+$libraryRoot = dirname(__DIR__, 2) . '/library';
+
 return [
+    AppLogger::class => function () {
+        return new AppLogger(__DIR__ . '/../../storage/app.log');
+    },
+
     Environment::class => function () {
         $loader = new FilesystemLoader(__DIR__ . '/../../templates');
         $env    = new Environment($loader, [
@@ -55,23 +66,23 @@ return [
         return new Settings($c->get(Connection::class));
     },
 
-    RenameService::class => function ($c) {
+    RenameService::class => function ($c) use ($libraryRoot) {
         return new RenameService(
             $c->get(Connection::class),
             $c->get(Settings::class),
-            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
+            $libraryRoot
         );
     },
 
-    LibraryScanner::class => function ($c) {
+    LibraryScanner::class => function ($c) use ($libraryRoot) {
         return new LibraryScanner(
             $c->get(Connection::class),
-            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
+            $libraryRoot
         );
     },
 
-    StreamService::class => function ($c) {
-        return new StreamService($c->get(Settings::class)->getEnv('MEDIA_PATH', '/library'));
+    StreamService::class => function ($c) use ($libraryRoot) {
+        return new StreamService($libraryRoot);
     },
 
     Client::class => function () {
@@ -118,12 +129,12 @@ return [
         );
     },
 
-    PeopleController::class => function ($c) {
+    PeopleController::class => function ($c) use ($libraryRoot) {
         return new PeopleController(
             $c->get(Environment::class),
             $c->get(Connection::class),
             $c->get(PeopleService::class),
-            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
+            $libraryRoot
         );
     },
 
@@ -131,7 +142,8 @@ return [
         return new MediaController(
             $c->get(Connection::class),
             $c->get(MetadataService::class),
-            $c->get(RenameService::class)
+            $c->get(RenameService::class),
+            $c->get(AppLogger::class)
         );
     },
 
@@ -153,13 +165,23 @@ return [
         return new SettingsController(
             $c->get(Environment::class),
             $c->get(Settings::class),
+            $c->get(AppLogger::class)
+        );
+    },
+
+    HomeController::class => function ($c) use ($libraryRoot) {
+        return new HomeController(
+            $c->get(Environment::class),
+            $c->get(Connection::class),
+            $libraryRoot
         );
     },
 
     AuthController::class => function ($c) {
         return new AuthController(
             $c->get(Environment::class),
-            $c->get(Connection::class)
+            $c->get(Connection::class),
+            $c->get(AppLogger::class)
         );
     },
 
@@ -181,21 +203,23 @@ return [
         );
     },
 
-    UploadController::class => function ($c) {
+    UploadController::class => function ($c) use ($libraryRoot) {
         return new UploadController(
             $c->get(MetadataService::class),
             $c->get(LibraryScanner::class),
-            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
+            $libraryRoot,
+            $c->get(AppLogger::class)
         );
     },
 
-    LibraryController::class => function ($c) {
+    LibraryController::class => function ($c) use ($libraryRoot) {
         return new LibraryController(
             $c->get(Environment::class),
             $c->get(Connection::class),
             $c->get(LibraryScanner::class),
             $c->get(MetadataService::class),
-            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
+            $libraryRoot,
+            $c->get(AppLogger::class)
         );
     },
 ];

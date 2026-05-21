@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Services\AppLogger;
 use App\Services\LibraryScanner;
 use App\Services\Metadata\MetadataService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -16,8 +17,9 @@ class UploadController
 
     public function __construct(
         private readonly MetadataService $metadata,
-        private readonly LibraryScanner $scanner,
-        private readonly string $libraryPath
+        private readonly LibraryScanner  $scanner,
+        private readonly string          $libraryPath,
+        private readonly AppLogger       $log,
     ) {}
 
     public function upload(Request $request, Response $response): Response
@@ -102,14 +104,24 @@ class UploadController
         try {
             $upload->moveTo($absPath);
         } catch (\Throwable $e) {
+            $this->log->error('upload', "Failed \"{$filename}\": " . $e->getMessage());
             return ['filename' => $filename, 'success' => false, 'error' => $e->getMessage()];
         }
+
+        $matchedTitle = $meta['title'] ?? null;
+        $this->log->info('upload', sprintf(
+            'Uploaded "%s" → %s/%s%s',
+            $filename,
+            $category,
+            $relPath,
+            $matchedTitle ? " (matched: {$matchedTitle})" : ''
+        ));
 
         return [
             'filename'    => $filename,
             'success'     => true,
             'destination' => $relPath,
-            'matched'     => $meta['title'] ?? null,
+            'matched'     => $matchedTitle,
         ];
     }
 

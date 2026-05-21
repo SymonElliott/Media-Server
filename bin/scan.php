@@ -22,6 +22,7 @@ $filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 $scanLogger = new App\Services\ScanLogger($logFile);
+$appLogger  = new App\Services\AppLogger($root . '/storage/app.log');
 $scanLogger->clear();
 
 $scanDesc = match(true) {
@@ -30,13 +31,14 @@ $scanDesc = match(true) {
     default               => 'full library',
 };
 $scanLogger->info("Scan started ($scanDesc)");
+$appLogger->info('scan', "Scan started ($scanDesc)");
 
 // ── Service wiring ────────────────────────────────────────────────────────────
 // Settings are read DB-first so any value saved through the UI takes effect
 // here without a container restart.
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $settings    = new App\Services\Settings($db);
-$libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
+$libraryPath = dirname(__DIR__) . '/library';
 $http        = new GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 8, 'http_errors' => false]);
 $tmdb        = new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY'));
 $openLib     = new App\Services\Metadata\OpenLibraryProvider($http);
@@ -79,13 +81,15 @@ $scanLogger->info('');
 $scanLogger->info('── Phase 1: Indexing files ──────────────────────────────');
 $scanStart = microtime(true);
 $stats = $scanner->scan($filterType, $filterGroup);
-$scanLogger->info(sprintf(
+$phase1Summary = sprintf(
     'Phase 1 complete in %.1fs  ·  %d added  ·  %d updated  ·  %d skipped',
     microtime(true) - $scanStart,
     $stats['added'],
     $stats['updated'],
     $stats['skipped']
-));
+);
+$scanLogger->info($phase1Summary);
+$appLogger->info('scan', $phase1Summary);
 
 // Count items that still need metadata enrichment for phase-2 progress
 $metaQuery  = 'SELECT COUNT(*) as n FROM media WHERE metadata_fetched_at IS NULL';
@@ -156,6 +160,13 @@ $people->enrichAll();
 $total = microtime(true) - $scanStart;
 $scanLogger->info('');
 $scanLogger->info(sprintf('Scan complete in %.1fs', $total));
+$appLogger->info('scan', sprintf(
+    'Scan complete in %.1fs — %d added, %d updated, %d skipped',
+    $total,
+    $stats['added'],
+    $stats['updated'],
+    $stats['skipped']
+));
 
 file_put_contents($stateFile, json_encode([
     'running'         => false,

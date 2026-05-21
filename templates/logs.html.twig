@@ -1,42 +1,83 @@
 {% extends 'layout.html.twig' %}
-{% block title %}Scan Logs — MediaServer{% endblock %}
+{% block title %}Logs — MediaServer{% endblock %}
 
 {% block scan_context %}{"type":null,"group":null}{% endblock %}
 
 {% block content %}
-<div style="max-width:960px;">
+<div style="max-width:1000px;">
 
     <div class="browse-header" style="margin-bottom:1.25rem;">
         <div class="browse-header-left">
-            <h1 style="margin:0;">Scan Logs</h1>
-            <span id="log-badge" class="log-badge {% if scanning %}log-badge--live{% endif %}">
-                {% if scanning %}● Live{% else %}Idle{% endif %}
+            <h1 style="margin:0;">Logs</h1>
+            <span id="scan-badge" class="log-badge {% if scanning %}log-badge--live{% endif %}">
+                {% if scanning %}● Scanning{% else %}Idle{% endif %}
             </span>
         </div>
         <div class="browse-header-right" style="gap:0.5rem;">
             <span id="log-meta" style="font-size:0.8rem;color:var(--muted);">
                 {% if finished_at %}Last scan: {{ finished_at|date('M j, Y  H:i') }}{% endif %}
             </span>
-            <button class="btn-refresh" onclick="downloadLog()" title="Download log file">⬇ Download</button>
-            <button class="btn-refresh" onclick="clearDisplay()" title="Clear display (doesn't delete the file)">Clear</button>
+            <button id="btn-download" class="btn-refresh" onclick="downloadActive()" title="Download log">⬇ Download</button>
+            <button id="btn-clear" class="btn-refresh" onclick="clearActive()" title="Clear">Clear</button>
         </div>
     </div>
 
-    <div id="log-terminal">
-        <div id="log-lines"></div>
-        <div id="log-cursor"></div>
+    {# ── Tabs ── #}
+    <div class="log-tabs" role="tablist">
+        <button class="log-tab log-tab--active" id="tab-app"  onclick="switchTab('app')"  role="tab">App Log</button>
+        <button class="log-tab"                 id="tab-scan" onclick="switchTab('scan')" role="tab">Scan Detail</button>
     </div>
 
-    <p id="log-empty" style="color:var(--muted);font-size:0.88rem;margin-top:1rem;display:none;">
-        No log yet — run a scan and the output will appear here in real time.
-    </p>
+    {# ── App Log panel ── #}
+    <div id="panel-app">
+        <div id="app-log-terminal" class="log-terminal">
+            <div id="app-log-lines"></div>
+        </div>
+        <p id="app-log-empty" class="log-empty" style="display:none;">
+            No app events yet. Login, upload a file, or trigger a scan to see activity here.
+        </p>
+    </div>
+
+    {# ── Scan Detail panel ── #}
+    <div id="panel-scan" style="display:none;">
+        <div id="scan-log-terminal" class="log-terminal">
+            <div id="scan-log-lines"></div>
+            <div id="scan-log-cursor"></div>
+        </div>
+        <p id="scan-log-empty" class="log-empty" style="display:none;">
+            No scan log yet — run a scan and the output will appear here in real time.
+        </p>
+    </div>
 
 </div>
 {% endblock %}
 
 {% block scripts %}
 <style>
-    #log-terminal {
+    /* ── Layout ── */
+    .log-tabs {
+        display: flex;
+        gap: 0.25rem;
+        border-bottom: 1px solid var(--border);
+        margin-bottom: 1rem;
+    }
+    .log-tab {
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 0.85rem;
+        font-weight: 500;
+        padding: 0.45rem 1rem 0.5rem;
+        margin-bottom: -1px;
+        transition: color 0.15s, border-color 0.15s;
+    }
+    .log-tab:hover { color: var(--text); }
+    .log-tab--active { color: var(--text); border-bottom-color: var(--accent); }
+
+    /* ── Terminal ── */
+    .log-terminal {
         background: #0d0d0d;
         border: 1px solid var(--border);
         border-radius: 8px;
@@ -48,16 +89,41 @@
         max-height: 72vh;
         overflow-y: auto;
         color: #c9d1d9;
-        position: relative;
         scroll-behavior: smooth;
     }
-    .log-line { white-space: pre-wrap; word-break: break-all; }
-    .log-line--phase  { color: #58a6ff; font-weight: 600; }
-    .log-line--ok     { color: #3fb950; }
-    .log-line--fail   { color: #f0883e; }
-    .log-line--error  { color: #f85149; }
-    .log-line--muted  { color: #6e7681; }
-    #log-cursor {
+    .log-empty {
+        color: var(--muted);
+        font-size: 0.88rem;
+        margin-top: 1rem;
+    }
+
+    /* ── App log entries ── */
+    .ale { display: flex; gap: 0.6rem; align-items: baseline; white-space: pre-wrap; word-break: break-all; }
+    .ale-ts   { color: #6e7681; flex-shrink: 0; }
+    .ale-lvl  { flex-shrink: 0; font-weight: 600; min-width: 2.5rem; }
+    .ale-lvl--INFO  { color: #58a6ff; }
+    .ale-lvl--WARN  { color: #f0883e; }
+    .ale-lvl--ERROR { color: #f85149; }
+    .ale-ch   { flex-shrink: 0; padding: 0 0.35rem; border-radius: 3px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+    .ale-ch--auth     { background: rgba(88,166,255,.15); color:#58a6ff; }
+    .ale-ch--upload   { background: rgba(192,132,252,.15); color:#c084fc; }
+    .ale-ch--scan     { background: rgba(34,211,238,.15);  color:#22d3ee; }
+    .ale-ch--metadata { background: rgba(74,222,128,.15);  color:#4ade80; }
+    .ale-ch--media    { background: rgba(251,113,133,.15); color:#fb7185; }
+    .ale-ch--settings { background: rgba(251,191,36,.15);  color:#fbbf24; }
+    .ale-ch--system   { background: rgba(148,163,184,.15); color:#94a3b8; }
+    .ale-msg  { color: #c9d1d9; }
+
+    /* ── Scan log entries ── */
+    .sle { white-space: pre-wrap; word-break: break-all; }
+    .sle--phase  { color: #58a6ff; font-weight: 600; }
+    .sle--ok     { color: #3fb950; }
+    .sle--fail   { color: #f0883e; }
+    .sle--error  { color: #f85149; }
+    .sle--muted  { color: #6e7681; }
+
+    /* ── Scan cursor ── */
+    #scan-log-cursor {
         display: inline-block;
         width: 7px; height: 14px;
         background: var(--accent);
@@ -66,9 +132,10 @@
         animation: blink 1s step-end infinite;
         margin-left: 2px;
     }
-    #log-cursor.hidden { display: none; }
+    #scan-log-cursor.hidden { display: none; }
     @keyframes blink { 0%,100%{opacity:.75} 50%{opacity:0} }
 
+    /* ── Badge ── */
     .log-badge {
         display: inline-flex; align-items: center;
         padding: 0.2rem 0.65rem; border-radius: 20px;
@@ -82,104 +149,209 @@
     }
 </style>
 <script>
-    let logOffset   = 0;
-    let logTimer    = null;
-    let autoScroll  = true;
-    let allLogText  = '';
+    // ── State ────────────────────────────────────────────────────────────────
+    let activeTab = 'app';
 
-    const terminal = document.getElementById('log-terminal');
-    const lines    = document.getElementById('log-lines');
-    const cursor   = document.getElementById('log-cursor');
-    const badge    = document.getElementById('log-badge');
-    const meta     = document.getElementById('log-meta');
-    const empty    = document.getElementById('log-empty');
+    let appOffset    = 0;
+    let appTimer     = null;
+    let appScroll    = true;
+    let appLogText   = '';
 
-    // Pause auto-scroll when user scrolls up
-    terminal.addEventListener('scroll', () => {
-        const atBottom = terminal.scrollTop + terminal.clientHeight >= terminal.scrollHeight - 30;
-        autoScroll = atBottom;
-    });
+    let scanOffset   = 0;
+    let scanTimer    = null;
+    let scanScroll   = true;
+    let scanLogText  = '';
 
-    function lineClass(text) {
-        if (/──/.test(text) || /Phase \d/.test(text) || /Scan (started|complete)/.test(text)) return 'log-line--phase';
-        if (/✓/.test(text)) return 'log-line--ok';
-        if (/✗ no match/.test(text)) return 'log-line--fail';
-        if (/ERROR/.test(text)) return 'log-line--error';
-        if (/^$/.test(text.trim())) return 'log-line--muted';
-        return '';
-    }
+    // ── Elements ─────────────────────────────────────────────────────────────
+    const appTerminal  = document.getElementById('app-log-terminal');
+    const appLines     = document.getElementById('app-log-lines');
+    const appEmpty     = document.getElementById('app-log-empty');
 
-    function appendText(text) {
-        if (!text) return;
-        allLogText += text;
-        const newLines = text.split('\n');
-        newLines.forEach((line, i) => {
-            // Last element may be an incomplete line — skip empty trailing entry
-            if (i === newLines.length - 1 && line === '') return;
-            const div = document.createElement('div');
-            div.className = 'log-line ' + lineClass(line);
-            div.textContent = line;
-            lines.appendChild(div);
-        });
-        if (autoScroll) terminal.scrollTop = terminal.scrollHeight;
-    }
+    const scanTerminal = document.getElementById('scan-log-terminal');
+    const scanLines    = document.getElementById('scan-log-lines');
+    const scanCursor   = document.getElementById('scan-log-cursor');
+    const scanEmpty    = document.getElementById('scan-log-empty');
 
-    function setLive(scanning) {
-        cursor.classList.toggle('hidden', !scanning);
-        if (scanning) {
-            badge.textContent = '● Live';
-            badge.className   = 'log-badge log-badge--live';
-        } else {
-            badge.textContent = 'Idle';
-            badge.className   = 'log-badge';
+    const scanBadge    = document.getElementById('scan-badge');
+    const logMeta      = document.getElementById('log-meta');
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+    function switchTab(tab) {
+        activeTab = tab;
+        document.getElementById('panel-app').style.display  = tab === 'app'  ? '' : 'none';
+        document.getElementById('panel-scan').style.display = tab === 'scan' ? '' : 'none';
+        document.getElementById('tab-app').classList.toggle('log-tab--active',  tab === 'app');
+        document.getElementById('tab-scan').classList.toggle('log-tab--active', tab === 'scan');
+
+        // Lazy-start scan log polling when the tab is first opened
+        if (tab === 'scan' && scanTimer === null) {
+            pollScan();
         }
     }
 
-    function pollLog() {
-        clearTimeout(logTimer);
-        fetch('/scan/log?offset=' + logOffset)
+    // ── Auto-scroll helpers ───────────────────────────────────────────────────
+    appTerminal.addEventListener('scroll',  () => {
+        appScroll  = appTerminal.scrollTop  + appTerminal.clientHeight  >= appTerminal.scrollHeight  - 30;
+    });
+    scanTerminal.addEventListener('scroll', () => {
+        scanScroll = scanTerminal.scrollTop + scanTerminal.clientHeight >= scanTerminal.scrollHeight - 30;
+    });
+
+    // ── App Log rendering ─────────────────────────────────────────────────────
+    const CH_MAP = { auth:'auth', upload:'upload', scan:'scan', metadata:'metadata',
+                     media:'media', settings:'settings', system:'system' };
+
+    function parseAppLine(raw) {
+        // [YYYY-MM-DD HH:MM:SS] [LEVEL] [channel] message
+        const m = raw.match(/^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\] \[(INFO |WARN |ERROR)\] \[(\w+)\] (.*)$/);
+        if (!m) return null;
+        return { ts: m[1], lvl: m[2].trim(), ch: m[3], msg: m[4] };
+    }
+
+    function appendAppText(text) {
+        if (!text) return;
+        appLogText += text;
+        const newLines = text.split('\n');
+        newLines.forEach((raw, i) => {
+            if (i === newLines.length - 1 && raw === '') return;
+            const div = document.createElement('div');
+            const p = parseAppLine(raw);
+            if (p) {
+                div.className = 'ale';
+                const chClass = CH_MAP[p.ch] ? `ale-ch--${CH_MAP[p.ch]}` : 'ale-ch--system';
+                div.innerHTML =
+                    `<span class="ale-ts">${escHtml(p.ts)}</span>` +
+                    `<span class="ale-lvl ale-lvl--${escHtml(p.lvl)}">${escHtml(p.lvl)}</span>` +
+                    `<span class="ale-ch ${chClass}">${escHtml(p.ch)}</span>` +
+                    `<span class="ale-msg">${escHtml(p.msg)}</span>`;
+            } else {
+                div.className = 'ale';
+                div.style.color = '#6e7681';
+                div.textContent = raw;
+            }
+            appLines.appendChild(div);
+        });
+        if (appScroll) appTerminal.scrollTop = appTerminal.scrollHeight;
+    }
+
+    function escHtml(s) {
+        return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // ── Scan Log rendering ────────────────────────────────────────────────────
+    function scanLineClass(text) {
+        if (/──/.test(text) || /Phase \d/.test(text) || /Scan (started|complete)/.test(text)) return 'sle--phase';
+        if (/✓/.test(text))         return 'sle--ok';
+        if (/✗ no match/.test(text)) return 'sle--fail';
+        if (/ERROR/.test(text))      return 'sle--error';
+        if (/^$/.test(text.trim()))  return 'sle--muted';
+        return '';
+    }
+
+    function appendScanText(text) {
+        if (!text) return;
+        scanLogText += text;
+        const newLines = text.split('\n');
+        newLines.forEach((line, i) => {
+            if (i === newLines.length - 1 && line === '') return;
+            const div = document.createElement('div');
+            div.className = 'sle ' + scanLineClass(line);
+            div.textContent = line;
+            scanLines.appendChild(div);
+        });
+        if (scanScroll) scanTerminal.scrollTop = scanTerminal.scrollHeight;
+    }
+
+    // ── Polling: App Log ──────────────────────────────────────────────────────
+    function pollApp() {
+        clearTimeout(appTimer);
+        fetch('/api/logs?offset=' + appOffset)
             .then(r => r.json())
             .then(d => {
                 if (d.text) {
-                    empty.style.display = 'none';
-                    appendText(d.text);
+                    appEmpty.style.display = 'none';
+                    appendAppText(d.text);
                 }
-                logOffset = d.size;
+                appOffset = d.size;
+                if (appOffset === 0) appEmpty.style.display = 'block';
+                appTimer = setTimeout(pollApp, 4000);
+            })
+            .catch(() => { appTimer = setTimeout(pollApp, 5000); });
+    }
 
+    // ── Polling: Scan Log ─────────────────────────────────────────────────────
+    function pollScan() {
+        clearTimeout(scanTimer);
+        fetch('/scan/log?offset=' + scanOffset)
+            .then(r => r.json())
+            .then(d => {
+                if (d.text) {
+                    scanEmpty.style.display = 'none';
+                    appendScanText(d.text);
+                }
+                scanOffset = d.size;
+
+                // Update shared badge + meta
                 setLive(d.scanning);
-
                 if (d.finished_at && !d.scanning) {
                     const dt = new Date(d.finished_at);
-                    meta.textContent = 'Last scan: ' + dt.toLocaleDateString('en', {month:'short',day:'numeric',year:'numeric'})
+                    logMeta.textContent = 'Last scan: '
+                        + dt.toLocaleDateString('en', {month:'short',day:'numeric',year:'numeric'})
                         + '  ' + dt.toLocaleTimeString('en', {hour:'2-digit',minute:'2-digit'});
                 }
 
-                if (logOffset === 0 && !d.scanning) {
-                    empty.style.display = 'block';
-                }
-
-                logTimer = setTimeout(pollLog, d.scanning ? 800 : 6000);
+                if (scanOffset === 0 && !d.scanning) scanEmpty.style.display = 'block';
+                scanTimer = setTimeout(pollScan, d.scanning ? 800 : 6000);
             })
-            .catch(() => { logTimer = setTimeout(pollLog, 3000); });
+            .catch(() => { scanTimer = setTimeout(pollScan, 3000); });
     }
 
-    function downloadLog() {
-        if (!allLogText) return;
-        const blob = new Blob([allLogText], { type: 'text/plain' });
-        const a    = document.createElement('a');
-        a.href     = URL.createObjectURL(blob);
-        a.download = 'scan-' + new Date().toISOString().slice(0,10) + '.log';
+    // ── Badge ─────────────────────────────────────────────────────────────────
+    function setLive(scanning) {
+        scanCursor.classList.toggle('hidden', !scanning);
+        if (scanning) {
+            scanBadge.textContent = '● Scanning';
+            scanBadge.className   = 'log-badge log-badge--live';
+        } else {
+            scanBadge.textContent = 'Idle';
+            scanBadge.className   = 'log-badge';
+        }
+    }
+
+    // ── Download ──────────────────────────────────────────────────────────────
+    function downloadActive() {
+        const text = activeTab === 'app' ? appLogText : scanLogText;
+        if (!text) return;
+        const name = activeTab === 'app'
+            ? 'app-' + new Date().toISOString().slice(0,10) + '.log'
+            : 'scan-' + new Date().toISOString().slice(0,10) + '.log';
+        const blob = new Blob([text], {type:'text/plain'});
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = name;
         a.click();
     }
 
-    function clearDisplay() {
-        lines.innerHTML = '';
-        allLogText      = '';
-        empty.style.display = logOffset === 0 ? 'block' : 'none';
+    // ── Clear ─────────────────────────────────────────────────────────────────
+    function clearActive() {
+        if (activeTab === 'app') {
+            fetch('/api/logs/clear', {method:'POST'})
+                .then(() => {
+                    appLines.innerHTML = '';
+                    appLogText = '';
+                    appOffset  = 0;
+                    appEmpty.style.display = 'block';
+                });
+        } else {
+            scanLines.innerHTML = '';
+            scanLogText = '';
+            scanEmpty.style.display = scanOffset === 0 ? 'block' : 'none';
+        }
     }
 
-    // Kick off — first call loads the full file (offset 0)
+    // ── Boot ──────────────────────────────────────────────────────────────────
     setLive({{ scanning ? 'true' : 'false' }});
-    pollLog();
+    pollApp();
+    // Scan log starts polling only when the tab is opened (lazy)
 </script>
 {% endblock %}

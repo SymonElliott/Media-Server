@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Database\Connection;
+use App\Services\AppLogger;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Twig\Environment;
@@ -14,6 +15,7 @@ class AuthController
     public function __construct(
         private readonly Environment $twig,
         private readonly Connection  $db,
+        private readonly AppLogger   $log,
     ) {}
 
     public function loginPage(Request $request, Response $response): Response
@@ -45,13 +47,17 @@ class AuthController
                 'username' => $user['username'],
                 'role'     => $user['role'],
             ];
+            $this->log->info('auth', "Login: \"{$username}\"");
             return $response->withHeader('Location', '/')->withStatus(302);
         }
+        $this->log->warn('auth', "Failed login attempt for \"{$username}\"");
         return $response->withHeader('Location', '/login?error=1')->withStatus(302);
     }
 
     public function logout(Request $request, Response $response): Response
     {
+        $username = $_SESSION['user']['username'] ?? 'unknown';
+        $this->log->info('auth', "Logout: \"{$username}\"");
         $_SESSION = [];
         session_destroy();
         return $response->withHeader('Location', '/login')->withStatus(302);

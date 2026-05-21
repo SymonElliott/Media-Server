@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Database\Connection;
-use App\Services\Settings;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 use Twig\Environment;
@@ -17,9 +16,9 @@ class HomeController
     public function __construct(
         private readonly Environment $twig,
         private readonly Connection  $db,
-        Settings $settings,
+        string $libraryPath,
     ) {
-        $this->libraryPath = rtrim($settings->getEnv('MEDIA_PATH', '/library'), '/');
+        $this->libraryPath = rtrim($libraryPath, '/');
     }
 
     public function index(Request $request, Response $response): Response

@@ -21,7 +21,7 @@ RUN { \
     } > /usr/local/etc/php/conf.d/media-server.ini
 
 # Pass host env vars through to FPM workers (clear_env=yes by default strips them,
-# which means background scan.php processes launched via exec() lose MEDIA_PATH etc.)
+# which means background scan.php processes launched via exec() lose env vars like TMDB_API_KEY).
 RUN echo 'clear_env = no' >> /usr/local/etc/php-fpm.d/www.conf
 
 # Nginx site config
@@ -43,10 +43,14 @@ RUN composer install --no-dev --optimize-autoloader --no-interaction
 # Copy application source
 COPY . .
 
-# Ensure writable directories exist with correct ownership
-RUN mkdir -p storage/db storage/cache public/covers \
-    && chown -R www-data:www-data storage public/covers \
-    && chmod -R 775 storage public/covers
+# Ensure writable directories exist with correct ownership.
+# `library/` is a mount-point for the host media volume; creating it here
+# prevents Docker from making it root-owned when the bind-mount is absent.
+# `vendor/` must be owned by www-data so the web process can run
+# `composer install` in-place after a git pull updates composer.lock.
+RUN mkdir -p storage/db storage/cache public/covers library \
+    && chown -R www-data:www-data storage public/covers library vendor \
+    && chmod -R 775 storage public/covers library vendor
 
 EXPOSE 80
 

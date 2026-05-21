@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controllers;
 
 use App\Database\Connection;
+use App\Services\AppLogger;
 use App\Services\LibraryScanner;
 use App\Services\Metadata\MetadataService;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -16,11 +17,12 @@ class LibraryController
     private const VALID_TYPES = ['movies', 'shows', 'music', 'books'];
 
     public function __construct(
-        private readonly Environment $twig,
-        private readonly Connection $db,
-        private readonly LibraryScanner $scanner,
+        private readonly Environment     $twig,
+        private readonly Connection      $db,
+        private readonly LibraryScanner  $scanner,
         private readonly MetadataService $metadata,
-        private readonly string $libraryPath
+        private readonly string          $libraryPath,
+        private readonly AppLogger       $log,
     ) {}
 
     public function index(Request $request, Response $response): Response
@@ -586,6 +588,13 @@ class LibraryController
         };
         exec($cmd);
 
+        $scanDesc = match (true) {
+            $filterGroup !== null => ucfirst($filterType ?? '') . ' › ' . $filterGroup,
+            $filterType !== null  => ucfirst($filterType),
+            default               => 'full library',
+        };
+        $this->log->info('scan', "Scan triggered ({$scanDesc}) by " . ($_SESSION['user']['username'] ?? 'system'));
+
         $response->getBody()->write(json_encode(['started' => true]));
         return $response->withHeader('Content-Type', 'application/json');
     }
@@ -681,6 +690,24 @@ class LibraryController
         return $response->withHeader('Content-Type', 'application/json');
     }
 
+    public function appLog(Request $request, Response $response): Response
+    {
+        $result = $this->log->tail(
+            max(0, (int) ($request->getQueryParams()['offset'] ?? 0))
+        );
+
+        $response->getBody()->write(json_encode($result));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    public function clearAppLog(Request $request, Response $response): Response
+    {
+        $this->log->clear();
+        $this->log->info('system', 'App log cleared by ' . ($_SESSION['user']['username'] ?? 'unknown'));
+        $response->getBody()->write(json_encode(['cleared' => true]));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
     public function refreshMetadata(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];
@@ -691,6 +718,11 @@ class LibraryController
         }
 
         $this->metadata->enrichOne($id);
+        $this->log->info('metadata', sprintf(
+            'Refreshed metadata for id=%d (%s)',
+            $id,
+            $item['type']
+        ));
 
         $referer = $request->getHeaderLine('Referer');
         return $response
@@ -709,6 +741,7 @@ class LibraryController
         }
 
         $this->metadata->refreshSeriesMeta($series, $author);
+        $this->log->info('metadata', "Refreshed series metadata: \"{$series}\" by {$author}");
 
         $referer = $request->getHeaderLine('Referer');
         return $response->withHeader('Location', $referer ?: '/')->withStatus(302);
@@ -745,6 +778,7 @@ class LibraryController
             escapeshellarg($script),
             escapeshellarg($type === 'audiobooks' ? 'books' : $type)
         ));
+        $this->log->info('metadata', "Bulk metadata refresh queued for {$type}");
 
         $redirect = in_array($type, self::VALID_TYPES, true) ? $type : 'books';
         return $response->withHeader('Location', '/library/' . $redirect)->withStatus(302);
