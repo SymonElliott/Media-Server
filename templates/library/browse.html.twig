@@ -25,9 +25,9 @@
 {% set menuCol = (type == 'music' and currentView == 'albums') ? 'series'
               : ((type == 'books' and currentView == 'series') ? 'series' : null) %}
 
-<div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.5rem;">
-    <div style="display:flex; align-items:center; gap:1rem;">
-        <h1 style="margin-bottom:0;">{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
+<div class="browse-header">
+    <div class="browse-header-left">
+        <h1>{{ typeIcon[type] }} {{ typeLabel[type] }}</h1>
         {% if tabs[type] is defined %}
         <div class="browse-tabs">
             {% for tabKey, tabLabel in tabs[type] %}
@@ -37,7 +37,7 @@
         </div>
         {% endif %}
     </div>
-    <div style="display:flex; gap:0.5rem; align-items:center;">
+    <div class="browse-header-right">
         <button class="btn-view-toggle" id="btn-grid" onclick="setView('grid')" title="Grid view">⊞</button>
         <button class="btn-view-toggle" id="btn-list" onclick="setView('list')" title="List view">☰</button>
         <form method="post" action="/metadata/refresh-type/{{ type }}">

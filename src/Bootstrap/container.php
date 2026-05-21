@@ -83,7 +83,7 @@ return [
     },
 
     MusicBrainzProvider::class => function ($c) {
-        return new MusicBrainzProvider($c->get(Client::class), $c->get(Settings::class)->getEnv('MUSICBRAINZ_USER_AGENT', 'MediaServer/1.0'));
+        return new MusicBrainzProvider($c->get(Client::class), 'MediaServer/1.0');
     },
 
     OpenLibraryProvider::class => function ($c) {
@@ -153,7 +153,6 @@ return [
         return new SettingsController(
             $c->get(Environment::class),
             $c->get(Settings::class),
-            __DIR__ . '/../..'
         );
     },
 

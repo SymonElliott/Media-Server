@@ -13,19 +13,17 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable($root);
-$dotenv->safeLoad();
-
 $id          = $argv[1] ?? null;
 $directUrl   = $argv[2] ?? null;
 $directCat   = $argv[3] ?? null;
 
 if (!$id) exit(1);
 
-$libraryPath = $_ENV['MEDIA_PATH'] ?? '/library';
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$settings    = new App\Services\Settings($db);
+$libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
 $http        = new GuzzleHttp\Client(['timeout' => 30, 'http_errors' => false]);
-$rd          = new App\Services\RealDebridService($http, $_ENV['REAL_DEBRID_API_KEY'] ?? '');
+$rd          = new App\Services\RealDebridService($http, $settings->getEnv('REAL_DEBRID_API_KEY'));
 
 $audioExts  = ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav'];
 $audioBookExts = ['m4b'];

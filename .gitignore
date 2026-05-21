@@ -1,5 +1,4 @@
 vendor/
-.env
 storage/db/*.sqlite
 *.db
 storage/cache/twig/

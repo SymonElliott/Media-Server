@@ -74,7 +74,7 @@
     }
     .toggle input:checked + .toggle-track::after { transform: translateX(20px); }
 
-    /* Arr pair: URL + key on same row */
+    /* Arr pair: URL + key stacked */
     .arr-pair { display: flex; flex-direction: column; gap: 0.4rem; }
     .arr-pair-sub { display: flex; gap: 0.5rem; align-items: center; }
     .arr-pair-sub label { font-size: 0.72rem; color: var(--muted); width: 30px; flex-shrink: 0; }
@@ -86,24 +86,18 @@
         gap: 1rem;
         padding-top: 0.25rem;
     }
-    .save-notice {
-        font-size: 0.82rem;
-        color: #4ade80;
-        display: none;
+
+    @media (max-width: 600px) {
+        .settings-row { flex-direction: column; align-items: flex-start; gap: 0.5rem; }
+        .settings-row-label { flex: none; width: 100%; }
+        .settings-row-control { width: 100%; }
     }
-    .save-notice.show { display: block; }
 </style>
 
 <div class="settings-page">
     <h1>Settings</h1>
 
-    {% if saved %}
-    <p style="color:#4ade80;font-size:0.88rem;margin-bottom:1.5rem;">
-        ✓ Settings saved. Restart the server for .env changes to take effect.
-    </p>
-    {% endif %}
-
-    <form method="POST" action="/settings">
+    <form id="settings-form" method="POST" action="/settings">
 
         {# ── Library ──────────────────────────────────────────────────────── #}
         <div class="settings-section">
@@ -112,11 +106,11 @@
             <div class="settings-row">
                 <div class="settings-row-label">
                     <strong>Library Path</strong>
-                    <span>Root directory of your media library</span>
+                    <span>Root directory of your media library inside the container</span>
                 </div>
                 <div class="settings-row-control">
-                    <input class="settings-input settings-input--mono" type="text" name="LIBRARY_PATH"
-                        value="{{ env.LIBRARY_PATH ?? '' }}">
+                    <input class="settings-input settings-input--mono" type="text" name="MEDIA_PATH"
+                        value="{{ env.MEDIA_PATH ?? '' }}">
                 </div>
             </div>
 
@@ -149,33 +143,14 @@
             </div>
         </div>
 
-        {# ── Real-Debrid ───────────────────────────────────────────────────── #}
+        {# ── API Keys ──────────────────────────────────────────────────────── #}
         <div class="settings-section">
-            <div class="settings-section-title">Real-Debrid</div>
+            <div class="settings-section-title">API Keys</div>
 
             <div class="settings-row">
                 <div class="settings-row-label">
-                    <strong>API Key</strong>
-                    <span>Found in your RD account under <em>Account &rsaquo; API Token</em></span>
-                </div>
-                <div class="settings-row-control">
-                    <input class="settings-input settings-input--mono" type="password" name="REAL_DEBRID_API_KEY"
-                        value="{{ env.REAL_DEBRID_API_KEY ?? '' }}"
-                        autocomplete="off"
-                        onfocus="this.type='text'"
-                        onblur="this.type='password'">
-                </div>
-            </div>
-        </div>
-
-        {# ── Metadata APIs ─────────────────────────────────────────────────── #}
-        <div class="settings-section">
-            <div class="settings-section-title">Metadata APIs</div>
-
-            <div class="settings-row">
-                <div class="settings-row-label">
-                    <strong>TMDB API Key</strong>
-                    <span>Used for movies and shows metadata</span>
+                    <strong>TMDB</strong>
+                    <span>Movies &amp; shows metadata</span>
                 </div>
                 <div class="settings-row-control">
                     <input class="settings-input settings-input--mono" type="password" name="TMDB_API_KEY"
@@ -188,19 +163,17 @@
 
             <div class="settings-row">
                 <div class="settings-row-label">
-                    <strong>MusicBrainz User-Agent</strong>
-                    <span>Identifies your app to the MusicBrainz API</span>
+                    <strong>Real-Debrid</strong>
+                    <span>Account &rsaquo; API Token</span>
                 </div>
                 <div class="settings-row-control">
-                    <input class="settings-input settings-input--mono" type="text" name="MUSICBRAINZ_USER_AGENT"
-                        value="{{ env.MUSICBRAINZ_USER_AGENT ?? '' }}">
+                    <input class="settings-input settings-input--mono" type="password" name="REAL_DEBRID_API_KEY"
+                        value="{{ env.REAL_DEBRID_API_KEY ?? '' }}"
+                        autocomplete="off"
+                        onfocus="this.type='text'"
+                        onblur="this.type='password'">
                 </div>
             </div>
-        </div>
-
-        {# ── Arr Stack ─────────────────────────────────────────────────────── #}
-        <div class="settings-section">
-            <div class="settings-section-title">Arr Stack (optional)</div>
 
             {% for arr in [
                 { key: 'SONARR',  label: 'Sonarr',  desc: 'TV show management' },
@@ -240,10 +213,12 @@
 
 {% block scripts %}
 <script>
-document.querySelector('form').addEventListener('submit', async function (e) {
+// Use getElementById to avoid accidentally targeting the nav logout form
+document.getElementById('settings-form').addEventListener('submit', async function (e) {
     e.preventDefault();
     const btn = document.getElementById('save-btn');
     btn.disabled = true;
+    btn.textContent = 'Saving…';
     try {
         const res = await fetch('/settings', { method: 'POST', body: new FormData(this) });
         if (res.ok) {
@@ -255,6 +230,7 @@ document.querySelector('form').addEventListener('submit', async function (e) {
         showToast('Save failed (network error).');
     } finally {
         btn.disabled = false;
+        btn.textContent = 'Save Settings';
     }
 });
 </script>

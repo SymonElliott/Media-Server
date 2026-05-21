@@ -16,10 +16,9 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable($root);
-$dotenv->safeLoad();
-
-$libraryPath   = $_ENV['MEDIA_PATH'] ?? '/library';
+$db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$settings    = new App\Services\Settings($db);
+$libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
 $audiobooksDir = $libraryPath . '/audiobooks';
 $booksDir      = $libraryPath . '/books';
 $dryRun        = in_array('--dry-run', $argv, true);

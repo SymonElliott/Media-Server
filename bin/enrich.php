@@ -7,19 +7,17 @@ $root = dirname(__DIR__);
 
 require $root . '/vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable($root);
-$dotenv->safeLoad();
-
 $type      = $argv[1] ?? null;
 $stateFile = $root . '/storage/scan.json';
 $coversDir = $root . '/public/covers';
 
 $db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$settings = new App\Services\Settings($db);
 $http     = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
 $metadata = new App\Services\Metadata\MetadataService(
     $db,
-    new App\Services\Metadata\TmdbProvider($http, $_ENV['TMDB_API_KEY'] ?? ''),
-    new App\Services\Metadata\MusicBrainzProvider($http, $_ENV['MUSICBRAINZ_USER_AGENT'] ?? 'MediaServer/1.0'),
+    new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY')),
+    new App\Services\Metadata\MusicBrainzProvider($http, 'MediaServer/1.0'),
     new App\Services\Metadata\OpenLibraryProvider($http),
     $http,
     $coversDir

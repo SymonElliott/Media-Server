@@ -7,27 +7,27 @@ $root = dirname(__DIR__);
 
 require $root . '/vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable($root);
-$dotenv->safeLoad();
-
-$stateFile   = $root . '/storage/scan.json';
-$libraryPath = $_ENV['MEDIA_PATH'] ?? getenv('MEDIA_PATH') ?: '/media';
-$coversDir   = $root . '/public/covers';
+$stateFile = $root . '/storage/scan.json';
+$coversDir = $root . '/public/covers';
 
 $validTypes  = ['movies', 'shows', 'music', 'books'];
 $filterType  = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
 $filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
 
-$db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
-$http     = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
-$tmdb     = new App\Services\Metadata\TmdbProvider($http, $_ENV['TMDB_API_KEY'] ?? '');
-$openLib  = new App\Services\Metadata\OpenLibraryProvider($http);
-$audnexus = new App\Services\Metadata\AudnexusProvider($http);
-$scanner  = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
-$metadata = new App\Services\Metadata\MetadataService(
+// Settings are read DB-first so any value saved through the UI takes effect
+// here without a container restart.
+$db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$settings    = new App\Services\Settings($db);
+$libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
+$http        = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
+$tmdb        = new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY'));
+$openLib     = new App\Services\Metadata\OpenLibraryProvider($http);
+$audnexus    = new App\Services\Metadata\AudnexusProvider($http);
+$scanner     = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
+$metadata    = new App\Services\Metadata\MetadataService(
     $db,
     $tmdb,
-    new App\Services\Metadata\MusicBrainzProvider($http, $_ENV['MUSICBRAINZ_USER_AGENT'] ?? 'MediaServer/1.0'),
+    new App\Services\Metadata\MusicBrainzProvider($http, 'MediaServer/1.0'),
     $openLib,
     $audnexus,
     $http,

@@ -6,7 +6,6 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"          # access at http://nas-ip:8080
-    env_file: .env
     volumes:
       # ── Source code (bind mount) ──────────────────────────────────────────────
       # git pull + docker-compose restart is enough for any code change.

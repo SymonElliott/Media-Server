@@ -876,6 +876,59 @@
             pointer-events: none; z-index: 999;
         }
         #toast.show { opacity: 1; }
+
+        /* ── Browse page header ── */
+        .browse-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+        .browse-header-left  { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+        .browse-header-left h1 { margin-bottom: 0; }
+        .browse-header-right { display: flex; gap: 0.5rem; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
+
+        /* ── Nav mobile action buttons (shown in hamburger dropdown on small screens) ── */
+        .nav-links-actions-wrap { display: none; }
+        .nav-links-actions { display: flex; flex-direction: column; gap: 0.4rem; padding: 0 0 0.5rem; }
+        .nav-action-btn {
+            background: var(--surface2); border: 1px solid var(--border);
+            color: var(--text); padding: 0.65rem 1.5rem; border-radius: 6px;
+            font-size: 0.88rem; cursor: pointer; font-family: inherit;
+            text-align: left; width: 100%; height: auto;
+            transition: background 0.15s, border-color 0.15s, color 0.15s;
+        }
+        .nav-action-btn:hover { background: var(--surface); border-color: var(--muted); }
+        .nav-action-btn.btn-scan:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+        /* ── Responsive: ≤ 640px (phones and small tablets) ── */
+        @media (max-width: 640px) {
+            main { padding: 1rem; }
+            h1 { font-size: 1.3rem; margin-bottom: 1rem; }
+
+            /* Hide desktop nav action buttons — they move into the hamburger dropdown */
+            .nav-actions .btn-upload,
+            .nav-actions .btn-scan,
+            .nav-actions #btn-rd { display: none; }
+            .nav-links-actions-wrap { display: block; }
+
+            /* Browse page header: stack vertically */
+            .browse-header { flex-direction: column; align-items: flex-start; gap: 0.75rem; }
+
+            /* Two-column form grids collapse to single column */
+            .form-row { grid-template-columns: 1fr; }
+
+            /* Stat cards: smaller minimum so two fit side-by-side on phones */
+            .stat-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+        }
+
+        /* ── Responsive: ≤ 480px (small phones) ── */
+        @media (max-width: 480px) {
+            main { padding: 0.75rem; }
+            h1 { font-size: 1.2rem; }
+            .grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
+            .stat-grid { grid-template-columns: 1fr 1fr; }
+            .meta-table td:first-child { width: 95px; }
+            .browse-tabs { flex-wrap: wrap; }
+            .people-grid { grid-template-columns: repeat(auto-fill, minmax(90px, 1fr)); }
+            .item-hero { margin: 0 -0.75rem 1.75rem; }
+            .item-expand-child { padding-left: 1.5rem; }
+        }
     </style>
 </head>
 <body>
@@ -898,9 +951,17 @@
             {% endif %}
             <div class="nav-links-divider"></div>
             <a href="/settings" data-nav>Settings</a>
+            <div class="nav-links-actions-wrap">
+                <div class="nav-links-divider"></div>
+                <div class="nav-links-actions">
+                    <button class="nav-action-btn btn-upload btn-rd-toggle" id="btn-rd-mobile" style="display:none" onclick="openRdModal()">Real-Debrid</button>
+                    <button class="nav-action-btn btn-upload" onclick="openUploadModal()">Upload</button>
+                    <button class="nav-action-btn btn-scan" onclick="triggerScan()">Scan Library</button>
+                </div>
+            </div>
         </div>
         <div class="nav-actions">
-            <button class="btn-upload" onclick="openRdModal()" id="btn-rd" style="display:none">Real-Debrid</button>
+            <button class="btn-upload btn-rd-toggle" onclick="openRdModal()" id="btn-rd" style="display:none">Real-Debrid</button>
             <button class="btn-upload" onclick="openUploadModal()">Upload</button>
             <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
             <button class="btn-scan-reset hidden" id="btn-scan-reset" onclick="resetScan()" title="Reset stuck scan">×</button>
@@ -1089,6 +1150,9 @@
         let spinGroupName  = null;
         let spinScanName   = null;
 
+        // Helper — operate on every .btn-scan element (desktop nav + mobile hamburger)
+        function eachScanBtn(fn) { document.querySelectorAll('.btn-scan').forEach(fn); }
+
         const TYPE_LABELS = { movies: 'Movies', shows: 'Shows', music: 'Music', books: 'Books' };
 
         function getScanContext() {
@@ -1111,10 +1175,7 @@
         }
 
         // Set button label to reflect current page on load
-        (function () {
-            const btn = document.querySelector('.btn-scan');
-            if (btn) btn.textContent = getScanBtnLabel();
-        })();
+        (function () { eachScanBtn(b => { b.textContent = getScanBtnLabel(); }); })();
 
         // ── Tile helpers ──────────────────────────────────────────────────
 
@@ -1196,9 +1257,7 @@
                     clearTimeout(scanPollTimer);
                     clearTileStates();
                     setScanResetVisible(false);
-                    const btn = document.querySelector('.btn-scan');
-                    btn.disabled = false;
-                    btn.textContent = getScanBtnLabel();
+                    eachScanBtn(b => { b.disabled = false; b.textContent = getScanBtnLabel(); });
                     showToast('Scan state reset');
                 })
                 .catch(() => showToast('Reset failed'));
@@ -1206,18 +1265,13 @@
 
         // ── Scan button text ──────────────────────────────────────────────
 
-        function scanBtnText(text) {
-            const btn = document.querySelector('.btn-scan');
-            if (btn) btn.textContent = text;
-        }
+        function scanBtnText(text) { eachScanBtn(b => { b.textContent = text; }); }
 
         // ── Polling ───────────────────────────────────────────────────────
 
         function triggerScan() {
-            const btn          = document.querySelector('.btn-scan');
+            eachScanBtn(b => { b.textContent = 'Starting…'; b.disabled = true; });
             const { type, group } = getScanContext();
-            btn.textContent = 'Starting…';
-            btn.disabled = true;
 
             const payload = type ? { type, ...(group ? { group } : {}) } : null;
             fetch('/scan', {
@@ -1229,25 +1283,21 @@
                 .then(d => {
                     if (d.error) {
                         showToast(d.error);
-                        btn.textContent = getScanBtnLabel();
-                        btn.disabled = false;
+                        eachScanBtn(b => { b.textContent = getScanBtnLabel(); b.disabled = false; });
                     } else {
                         startPolling();
                     }
                 })
                 .catch(() => {
                     showToast('Failed to start scan');
-                    btn.textContent = getScanBtnLabel();
-                    btn.disabled = false;
+                    eachScanBtn(b => { b.textContent = getScanBtnLabel(); b.disabled = false; });
                 });
         }
 
         function startPolling() {
             wasScanning = false;
             clearTileStates();
-            const btn = document.querySelector('.btn-scan');
-            btn.textContent = 'Starting…';
-            btn.disabled = true;
+            eachScanBtn(b => { b.textContent = 'Starting…'; b.disabled = true; });
             setScanResetVisible(true);
             clearTimeout(scanPollTimer);
             pollStatus();
@@ -1357,15 +1407,14 @@
                         clearTileStates();
                         setScanResetVisible(false);
 
-                        const btn = document.querySelector('.btn-scan');
-                        btn.disabled = false;
+                        eachScanBtn(b => { b.disabled = false; });
 
                         if (wasScanning) {
                             wasScanning = false;
-                            btn.textContent = '✓ Scan complete';
-                            setTimeout(() => { btn.textContent = getScanBtnLabel(); }, 3000);
+                            eachScanBtn(b => { b.textContent = '✓ Scan complete'; });
+                            setTimeout(() => { eachScanBtn(b => { b.textContent = getScanBtnLabel(); }); }, 3000);
                         } else {
-                            btn.textContent = getScanBtnLabel();
+                            eachScanBtn(b => { b.textContent = getScanBtnLabel(); });
                         }
                     }
                 })
@@ -1391,8 +1440,7 @@
                 .then(r => r.json())
                 .then(d => {
                     if (d.scanning) {
-                        const btn = document.querySelector('.btn-scan');
-                        if (btn) btn.disabled = true;
+                        eachScanBtn(b => { b.disabled = true; });
                         setScanResetVisible(true);
                         pollStatus();
                     }
@@ -1610,16 +1658,15 @@
         fetch('/rd/queue')
             .then(r => r.json())
             .then(rows => {
-                const btn = document.getElementById('btn-rd');
-                if (!btn) return;
-                // Show the button (RD is configured if the endpoint works without a 503)
-                btn.style.display = '';
+                // Show all RD toggle buttons (RD is configured if the endpoint responds without a 503)
+                document.querySelectorAll('.btn-rd-toggle').forEach(b => { b.style.display = ''; });
                 if (rows.length) {
                     renderRdQueue(rows);
-                    document.getElementById('rd-queue').style.display = '';
+                    const queueEl = document.getElementById('rd-queue');
+                    if (queueEl) queueEl.style.display = '';
                 }
             })
-            .catch(() => {}); // RD not configured — button stays hidden
+            .catch(() => {}); // RD not configured — buttons stay hidden
     })();
 
     function openRdModal() {

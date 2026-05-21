@@ -15,18 +15,16 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
-$dotenv = Dotenv\Dotenv::createImmutable($root);
-$dotenv->safeLoad();
-
 $dryRun   = in_array('--dry-run', $argv, true);
-$booksDir = ($_ENV['MEDIA_PATH'] ?? '/library') . '/books';
+
+$db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$settings = new App\Services\Settings($db);
+$booksDir = $settings->getEnv('MEDIA_PATH', '/media') . '/books';
 
 if (!is_dir($booksDir)) {
     fwrite(STDERR, "Books directory not found: $booksDir\n");
     exit(1);
 }
-
-$db = new App\Database\Connection($root . '/storage/db/media.sqlite');
 
 // ── Rename rules ─────────────────────────────────────────────────────────────
 
