@@ -10,6 +10,8 @@ use GuzzleHttp\ClientInterface;
 
 class MetadataService
 {
+    private mixed $logger = null; // callable|null — `callable` is not a valid property type in PHP
+
     public function __construct(
         private readonly Connection    $db,
         private readonly TmdbProvider  $tmdb,
@@ -20,6 +22,19 @@ class MetadataService
         private readonly string              $coversDir,
         private readonly ?RenameService      $renamer = null
     ) {}
+
+    /** Inject a logging callback — called with a single string message. */
+    public function setLogger(callable $logger): void
+    {
+        $this->logger = $logger;
+    }
+
+    private function log(string $message): void
+    {
+        if ($this->logger) {
+            ($this->logger)($message);
+        }
+    }
 
     // ── Public API ────────────────────────────────────────────────────────
 
@@ -167,8 +182,8 @@ class MetadataService
             if ($onProgress) $onProgress('movies', $item['id'], $item['title'] ?? $item['filename'] ?? '');
             try {
                 $this->enrichMovie($item);
-            } catch (\Throwable) {
-                // Don't let one bad item abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[movies] ERROR: ' . $e->getMessage());
             }
             usleep(150_000); // stay well under TMDB rate limit
         }
@@ -194,8 +209,8 @@ class MetadataService
             try {
                 // No episode stills during automated scan — fetched manually via Edit modal
                 $this->enrichShow($row['show_name'], false);
-            } catch (\Throwable) {
-                // Don't let one bad show abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[shows] ERROR: ' . $e->getMessage());
             }
             usleep(150_000);
         }
@@ -228,8 +243,8 @@ class MetadataService
                      WHERE type = "shows" AND show_name = ? AND metadata_fetched_at IS NULL',
                     [$row['show_name']]
                 );
-            } catch (\Throwable) {
-                // Don't let one bad show abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[shows] ERROR: ' . $e->getMessage());
             }
         }
     }
@@ -248,8 +263,8 @@ class MetadataService
             if ($onProgress) $onProgress('music', $album['author'], $album['author']);
             try {
                 $this->enrichAlbum($album['author'], $album['series']);
-            } catch (\Throwable) {
-                // Don't let one bad album abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[music] ERROR: ' . $e->getMessage());
             }
             sleep(1); // MusicBrainz: 1 req/second
         }
@@ -278,8 +293,8 @@ class MetadataService
             if ($onProgress) $onProgress($item['type'], $item['id'], ($item['book_name'] ?? null) ?: ($item['title'] ?? $item['filename'] ?? ''));
             try {
                 $this->enrichBook($item);
-            } catch (\Throwable) {
-                // Don't let one bad book abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[books] ERROR: ' . $e->getMessage());
             }
             usleep(250_000);
         }
@@ -306,8 +321,8 @@ class MetadataService
             if ($onProgress) $onProgress('audiobooks', $groupKey, $cleanTitle);
             try {
                 $this->enrichAudiobook($book['book_name'], $book['author'], $cleanTitle);
-            } catch (\Throwable) {
-                // Don't let one bad audiobook abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[audiobooks] ERROR: ' . $e->getMessage());
             }
             usleep(250_000);
         }
@@ -327,8 +342,8 @@ class MetadataService
             if ($onProgress) $onProgress('audiobooks', $row['series'], $row['series']);
             try {
                 $this->enrichSeries($row['series'], $row['author']);
-            } catch (\Throwable) {
-                // Don't let one bad series abort the whole scan
+            } catch (\Throwable $e) {
+                $this->log('[audiobooks] ERROR enriching series "' . $row['series'] . '": ' . $e->getMessage());
             }
             usleep(250_000);
         }
@@ -340,7 +355,13 @@ class MetadataService
     {
         $rawTitle    = $item['title'] ?? $item['filename'];
         $searchTitle = $this->cleanMovieSearchTitle($rawTitle);
-        $meta        = $this->tmdb->searchMovie($searchTitle, $item['year']);
+        $this->log("[movies] \"{$searchTitle}\" → TMDB...");
+        $meta = $this->tmdb->searchMovie($searchTitle, $item['year']);
+        if ($meta) {
+            $this->log("[movies] \"{$searchTitle}\" ✓ {$meta['title']}" . ($meta['year'] ? " ({$meta['year']})" : ''));
+        } else {
+            $this->log("[movies] \"{$searchTitle}\" ✗ no match");
+        }
         $this->applyToSingle($item['id'], $meta, true);
         $this->renamer?->renameItem($item['id']);
     }
@@ -362,10 +383,21 @@ class MetadataService
 
     private function enrichShow(string $showName, bool $downloadStills = false): void
     {
+        $this->log("[shows] \"{$showName}\" → TMDB...");
         $meta = $this->tmdb->searchShow($showName);
+        if ($meta) {
+            $this->log("[shows] \"{$showName}\" ✓ {$meta['title']}" . ($meta['year'] ? " ({$meta['year']})" : ''));
+        } else {
+            $this->log("[shows] \"{$showName}\" ✗ no match");
+        }
         $this->applyToShow($showName, $meta, true);
 
         if (($meta['external_id'] ?? null) && ($meta['external_source'] ?? null) === 'tmdb') {
+            $seasonCount = (int) ($this->db->first(
+                'SELECT COUNT(DISTINCT season) as n FROM media WHERE type = "shows" AND show_name = ?',
+                [$showName]
+            )['n'] ?? 0);
+            $this->log("[shows] \"{$showName}\" fetching {$seasonCount} season(s)...");
             $this->enrichShowSeasons($showName, (int) $meta['external_id'], $downloadStills);
         }
 
@@ -443,7 +475,14 @@ class MetadataService
     private function enrichAlbum(?string $artist, ?string $album): void
     {
         if (!$artist) return;
+        $label = $album ? "\"{$artist} / {$album}\"" : "\"{$artist}\"";
+        $this->log("[music] {$label} → MusicBrainz...");
         $meta = $this->musicBrainz->searchRelease($artist, $album);
+        if ($meta) {
+            $this->log("[music] {$label} ✓ {$meta['title']}" . ($meta['year'] ? " ({$meta['year']})" : ''));
+        } else {
+            $this->log("[music] {$label} ✗ no match");
+        }
         $this->applyToAlbum($artist, $album, $meta, true);
         $this->renamer?->renameAlbumTracks($artist, $album ?? '');
     }
@@ -454,7 +493,13 @@ class MetadataService
         // filename-derived title (often just "book" or a generic placeholder).
         $raw   = ($item['book_name'] ?? null) ?: ($item['title'] ?? $item['filename']);
         $title = $this->cleanBookSearchTitle($raw, $item['author'] ?? null);
-        $meta  = $this->openLibrary->search($title, $item['author']);
+        $this->log("[books] \"{$title}\" → OpenLibrary...");
+        $meta = $this->openLibrary->search($title, $item['author']);
+        if ($meta) {
+            $this->log("[books] \"{$title}\" ✓ {$meta['title']}" . ($meta['year'] ? " ({$meta['year']})" : ''));
+        } else {
+            $this->log("[books] \"{$title}\" ✗ no match");
+        }
         $this->applyToSingle($item['id'], $meta, true);
         $this->renamer?->renameItem($item['id']);
     }
@@ -464,8 +509,17 @@ class MetadataService
         if (!$bookName) return;
         $title = $cleanTitle ?? $bookName;
         // Prefer Audnexus when the title/filename contains an ASIN; otherwise use OpenLibrary.
+        $hasAsin = (bool) preg_match('/\bB[0-9A-Z]{9}\b/', $title);
+        $provider = $hasAsin ? 'Audnexus' : 'OpenLibrary';
+        $this->log("[audiobooks] \"{$title}\" → {$provider}...");
         $meta = $this->audnexus->search($title, $author)
             ?? $this->openLibrary->search($title, $author);
+        if ($meta) {
+            $src = $meta['external_source'] ?? $provider;
+            $this->log("[audiobooks] \"{$title}\" ✓ {$meta['title']}" . ($meta['year'] ? " ({$meta['year']}) via {$src}" : " via {$src}"));
+        } else {
+            $this->log("[audiobooks] \"{$title}\" ✗ no match");
+        }
         $this->applyToBook($bookName, $meta, true);
         $this->renamer?->renameBookFiles($bookName);
     }

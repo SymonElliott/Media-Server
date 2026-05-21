@@ -633,6 +633,54 @@ class LibraryController
         return $response->withHeader('Content-Type', 'application/json');
     }
 
+    public function logsPage(Request $request, Response $response): Response
+    {
+        $stateFile = dirname(__DIR__, 2) . '/storage/scan.json';
+        $state     = [];
+        if (file_exists($stateFile)) {
+            $state = json_decode(file_get_contents($stateFile), true) ?? [];
+        }
+
+        $html = $this->twig->render('logs.html.twig', [
+            'scanning'    => (bool) ($state['running'] ?? false),
+            'finished_at' => $state['finished_at'] ?? null,
+        ]);
+        $response->getBody()->write($html);
+        return $response->withHeader('Content-Type', 'text/html');
+    }
+
+    public function scanLog(Request $request, Response $response): Response
+    {
+        $logFile  = dirname(__DIR__, 2) . '/storage/scan.log';
+        $offset   = max(0, (int) ($request->getQueryParams()['offset'] ?? 0));
+        $text     = '';
+        $size     = 0;
+
+        if (file_exists($logFile)) {
+            clearstatcache(true, $logFile);
+            $size = filesize($logFile);
+            if ($offset < $size) {
+                $fh = fopen($logFile, 'r');
+                if ($offset > 0) fseek($fh, $offset);
+                $text = (string) fread($fh, $size - $offset);
+                fclose($fh);
+            }
+        }
+
+        $stateFile = dirname(__DIR__, 2) . '/storage/scan.json';
+        $state     = file_exists($stateFile)
+            ? (json_decode(file_get_contents($stateFile), true) ?? [])
+            : [];
+
+        $response->getBody()->write(json_encode([
+            'text'        => $text,
+            'size'        => $size,
+            'scanning'    => (bool) ($state['running'] ?? false),
+            'finished_at' => $state['finished_at'] ?? null,
+        ]));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
     public function refreshMetadata(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];

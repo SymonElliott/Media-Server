@@ -13,12 +13,25 @@ $root = dirname(__DIR__);
 require $root . '/vendor/autoload.php';
 
 $stateFile = $root . '/storage/scan.json';
+$logFile   = $root . '/storage/scan.log';
 $coversDir = $root . '/public/covers';
 
 $validTypes  = ['movies', 'shows', 'music', 'books'];
 $filterType  = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
 $filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
 
+// ── Logger ────────────────────────────────────────────────────────────────────
+$scanLogger = new App\Services\ScanLogger($logFile);
+$scanLogger->clear();
+
+$scanDesc = match(true) {
+    $filterGroup !== null => ucfirst($filterType ?? '') . ' › ' . $filterGroup,
+    $filterType !== null  => ucfirst($filterType),
+    default               => 'full library',
+};
+$scanLogger->info("Scan started ($scanDesc)");
+
+// ── Service wiring ────────────────────────────────────────────────────────────
 // Settings are read DB-first so any value saved through the UI takes effect
 // here without a container restart.
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
@@ -38,6 +51,8 @@ $metadata    = new App\Services\Metadata\MetadataService(
     $http,
     $coversDir
 );
+$metadata->setLogger(fn(string $msg) => $scanLogger->info($msg));
+
 $people = new App\Services\PeopleService($db, $tmdb, $audnexus, $openLib, $http, $coversDir);
 
 // Use existing DB row counts as a fast estimate for the progress total —
@@ -60,7 +75,17 @@ file_put_contents($stateFile, json_encode([
 ]), LOCK_EX);
 
 // Phase 1: index files
+$scanLogger->info('');
+$scanLogger->info('── Phase 1: Indexing files ──────────────────────────────');
+$scanStart = microtime(true);
 $stats = $scanner->scan($filterType, $filterGroup);
+$scanLogger->info(sprintf(
+    'Phase 1 complete in %.1fs  ·  %d added  ·  %d updated  ·  %d skipped',
+    microtime(true) - $scanStart,
+    $stats['added'],
+    $stats['updated'],
+    $stats['skipped']
+));
 
 // Count items that still need metadata enrichment for phase-2 progress
 $metaQuery  = 'SELECT COUNT(*) as n FROM media WHERE metadata_fetched_at IS NULL';
@@ -86,8 +111,11 @@ file_put_contents($stateFile, json_encode([
 ]), LOCK_EX);
 
 // Phase 2: enrich metadata
-$done     = 0;
-$progress = function (string $type, int|string $itemKey, ?string $itemName = null) use ($stateFile, $stats, $metaTotal, &$done) {
+$scanLogger->info('');
+$scanLogger->info(sprintf('── Phase 2: Metadata enrichment  ·  %d items pending ──────', $metaTotal));
+$metaStart = microtime(true);
+$done      = 0;
+$progress  = function (string $type, int|string $itemKey, ?string $itemName = null) use ($stateFile, $stats, $metaTotal, &$done) {
     file_put_contents($stateFile, json_encode([
         'running'           => true,
         'phase'             => 'metadata',
@@ -108,7 +136,13 @@ if ($filterType) {
     $metadata->enrichAll($progress);
 }
 
+if ($metaTotal > 0) {
+    $scanLogger->info(sprintf('Phase 2 complete in %.1fs', microtime(true) - $metaStart));
+}
+
 // Phase 3: sync and enrich people (authors, artists, cast)
+$scanLogger->info('');
+$scanLogger->info('── Phase 3: Syncing people ──────────────────────────────');
 file_put_contents($stateFile, json_encode([
     'running'      => true,
     'phase'        => 'people',
@@ -118,6 +152,10 @@ file_put_contents($stateFile, json_encode([
 
 $people->syncFromMedia();
 $people->enrichAll();
+
+$total = microtime(true) - $scanStart;
+$scanLogger->info('');
+$scanLogger->info(sprintf('Scan complete in %.1fs', $total));
 
 file_put_contents($stateFile, json_encode([
     'running'         => false,

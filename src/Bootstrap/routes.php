@@ -61,7 +61,9 @@ return function (App $app): void {
 
     $app->post('/scan', LibraryController::class . ':scan');
     $app->get('/scan/status', LibraryController::class . ':status');
+    $app->get('/scan/log', LibraryController::class . ':scanLog');
     $app->post('/scan/reset', LibraryController::class . ':resetScan');
+    $app->get('/logs', LibraryController::class . ':logsPage');
 
     $app->post('/metadata/refresh/{id}', LibraryController::class . ':refreshMetadata');
     $app->post('/metadata/refresh-series', LibraryController::class . ':refreshSeriesMetadata');
