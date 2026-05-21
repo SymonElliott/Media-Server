@@ -59,19 +59,19 @@ return [
         return new RenameService(
             $c->get(Connection::class),
             $c->get(Settings::class),
-            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
+            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
         );
     },
 
     LibraryScanner::class => function ($c) {
         return new LibraryScanner(
             $c->get(Connection::class),
-            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
+            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
         );
     },
 
     StreamService::class => function ($c) {
-        return new StreamService($c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library'));
+        return new StreamService($c->get(Settings::class)->getEnv('MEDIA_PATH', '/library'));
     },
 
     Client::class => function () {
@@ -123,7 +123,7 @@ return [
             $c->get(Environment::class),
             $c->get(Connection::class),
             $c->get(PeopleService::class),
-            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
+            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
         );
     },
 
@@ -186,7 +186,7 @@ return [
         return new UploadController(
             $c->get(MetadataService::class),
             $c->get(LibraryScanner::class),
-            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
+            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
         );
     },
 
@@ -196,7 +196,7 @@ return [
             $c->get(Connection::class),
             $c->get(LibraryScanner::class),
             $c->get(MetadataService::class),
-            $c->get(Settings::class)->getEnv('LIBRARY_PATH', '/library')
+            $c->get(Settings::class)->getEnv('MEDIA_PATH', '/library')
         );
     },
 ];

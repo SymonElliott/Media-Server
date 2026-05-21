@@ -22,7 +22,7 @@ $directCat   = $argv[3] ?? null;
 
 if (!$id) exit(1);
 
-$libraryPath = $_ENV['LIBRARY_PATH'] ?? '/library';
+$libraryPath = $_ENV['MEDIA_PATH'] ?? '/library';
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $http        = new GuzzleHttp\Client(['timeout' => 30, 'http_errors' => false]);
 $rd          = new App\Services\RealDebridService($http, $_ENV['REAL_DEBRID_API_KEY'] ?? '');

@@ -11,7 +11,7 @@ $dotenv = Dotenv\Dotenv::createImmutable($root);
 $dotenv->safeLoad();
 
 $stateFile   = $root . '/storage/scan.json';
-$libraryPath = $_ENV['LIBRARY_PATH'] ?? '/library';
+$libraryPath = $_ENV['MEDIA_PATH'] ?? '/library';
 $coversDir   = $root . '/public/covers';
 
 $validTypes  = ['movies', 'shows', 'music', 'books'];

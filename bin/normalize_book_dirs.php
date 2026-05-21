@@ -19,7 +19,7 @@ $dotenv = Dotenv\Dotenv::createImmutable($root);
 $dotenv->safeLoad();
 
 $dryRun   = in_array('--dry-run', $argv, true);
-$booksDir = ($_ENV['LIBRARY_PATH'] ?? '/library') . '/books';
+$booksDir = ($_ENV['MEDIA_PATH'] ?? '/library') . '/books';
 
 if (!is_dir($booksDir)) {
     fwrite(STDERR, "Books directory not found: $booksDir\n");

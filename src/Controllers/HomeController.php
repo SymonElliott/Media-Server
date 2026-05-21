@@ -19,7 +19,7 @@ class HomeController
         private readonly Connection  $db,
         Settings $settings,
     ) {
-        $this->libraryPath = rtrim($settings->getEnv('LIBRARY_PATH', '/library'), '/');
+        $this->libraryPath = rtrim($settings->getEnv('MEDIA_PATH', '/library'), '/');
     }
 
     public function index(Request $request, Response $response): Response

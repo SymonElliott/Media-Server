@@ -19,7 +19,7 @@ require $root . '/vendor/autoload.php';
 $dotenv = Dotenv\Dotenv::createImmutable($root);
 $dotenv->safeLoad();
 
-$libraryPath   = $_ENV['LIBRARY_PATH'] ?? '/library';
+$libraryPath   = $_ENV['MEDIA_PATH'] ?? '/library';
 $audiobooksDir = $libraryPath . '/audiobooks';
 $booksDir      = $libraryPath . '/books';
 $dryRun        = in_array('--dry-run', $argv, true);

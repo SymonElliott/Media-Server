@@ -15,7 +15,7 @@ class SettingsController
 
     /** Keys in .env that are editable through the UI. */
     private const ENV_KEYS = [
-        'LIBRARY_PATH',
+        'MEDIA_PATH',
         'APP_DEBUG',
         'REAL_DEBRID_API_KEY',
         'TMDB_API_KEY',
