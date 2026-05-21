@@ -8,15 +8,25 @@ services:
       - "8080:80"          # access at http://nas-ip:8080
     env_file: .env
     volumes:
+      # ── Source code (bind mount) ──────────────────────────────────────────────
+      # git pull + docker-compose restart is enough for any code change.
+      # Rebuild only needed when composer.json or Dockerfile changes.
+      - .:/var/www/html
+
+      # ── Vendor (named volume, populated from image) ───────────────────────────
+      # Keeps composer-installed dependencies from the last build so the app
+      # works without vendor/ being committed to git.
+      - vendor:/var/www/html/vendor
+
       # ── Your Synology media share ────────────────────────────────────────────
       # Change /volume1/media/library to wherever your library lives on the NAS.
-      # Remove the comment on the line that matches your setup:
       - /volume1/media/library:/media    # Synology shared folder
       # - /mnt/user/media:/media         # Unraid
       # - ./sample-library:/media        # local dev
 
       # ── Persistent data (DB + cache + cover art) ─────────────────────────────
-      # These are written relative to the compose file on the NAS; they survive
-      # container rebuilds and upgrades.
       - ./data/storage:/var/www/html/storage
       - ./data/covers:/var/www/html/public/covers
+
+volumes:
+  vendor:

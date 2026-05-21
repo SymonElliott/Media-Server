@@ -3,8 +3,8 @@ set -e
 
 echo "Creating data directories..."
 mkdir -p data/storage/db data/storage/cache data/covers
-# www-data (UID 33) inside the container needs write access to these
-chmod -R 777 data/
+# www-data (UID 33) inside the container needs write access to these bind mounts
+chmod -R 777 data/ storage/ public/covers/ 2>/dev/null || true
 
 echo "Starting media-server..."
 # Synology uses standalone docker-compose (v1); fall back to plugin (v2) if not found
