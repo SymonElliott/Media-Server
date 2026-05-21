@@ -20,6 +20,10 @@ RUN { \
         echo 'max_input_time = 300'; \
     } > /usr/local/etc/php/conf.d/media-server.ini
 
+# Pass host env vars through to FPM workers (clear_env=yes by default strips them,
+# which means background scan.php processes launched via exec() lose MEDIA_PATH etc.)
+RUN echo 'clear_env = no' >> /usr/local/etc/php-fpm.d/www.conf
+
 # Nginx site config
 COPY docker/nginx.conf /etc/nginx/sites-available/default
 
