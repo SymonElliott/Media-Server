@@ -624,6 +624,14 @@ class LibraryController
         return $response->withHeader('Content-Type', 'application/json');
     }
 
+    public function resetScan(Request $request, Response $response): Response
+    {
+        $stateFile = dirname(__DIR__, 2) . '/storage/scan.json';
+        file_put_contents($stateFile, json_encode(['running' => false]), LOCK_EX);
+        $response->getBody()->write(json_encode(['reset' => true]));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
     public function refreshMetadata(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];
