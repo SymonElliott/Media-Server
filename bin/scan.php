@@ -14,13 +14,6 @@ $stateFile   = $root . '/storage/scan.json';
 $libraryPath = $_ENV['MEDIA_PATH'] ?? getenv('MEDIA_PATH') ?: '/media';
 $coversDir   = $root . '/public/covers';
 
-// Debug log so we can confirm what the background process sees
-file_put_contents(
-    $root . '/storage/scan_debug.log',
-    date('c') . " scan.php started — MEDIA_PATH={$libraryPath} uid=" . posix_getuid() . "\n",
-    FILE_APPEND | LOCK_EX
-);
-
 $validTypes  = ['movies', 'shows', 'music', 'books'];
 $filterType  = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
 $filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
