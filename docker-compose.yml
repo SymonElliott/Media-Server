@@ -9,11 +9,11 @@ services:
     env_file: .env
     volumes:
       # ── Your Synology media share ────────────────────────────────────────────
-      # Change /volume1/media to wherever your library lives on the NAS.
+      # Change /volume1/media/library to wherever your library lives on the NAS.
       # Remove the comment on the line that matches your setup:
-      - /volume1/media:/library          # Synology shared folder
-      # - /mnt/user/media:/library       # Unraid
-      # - ./sample-library:/library      # local dev
+      - /volume1/media/library:/media    # Synology shared folder
+      # - /mnt/user/media:/media         # Unraid
+      # - ./sample-library:/media        # local dev
 
       # ── Persistent data (DB + cache + cover art) ─────────────────────────────
       # These are written relative to the compose file on the NAS; they survive
