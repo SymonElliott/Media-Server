@@ -1149,7 +1149,6 @@
         let spinItemId      = null;
         let spinGroupName   = null;
         let spinScanName    = null;
-        let lastScanPhase   = null;
         let isSoftReloading = false;
 
         // Helper — operate on every .btn-scan element (desktop nav + mobile hamburger)
@@ -1162,16 +1161,24 @@
             if (!p.startsWith('/library/') && p !== '/') return;
             if (isSoftReloading) return;
             isSoftReloading = true;
-            fetch(window.location.href)
+            // Capture URL now; abort if user navigated elsewhere before fetch completes
+            const targetHref = window.location.href;
+            fetch(targetHref)
                 .then(r => r.text())
                 .then(html => {
+                    if (window.location.href !== targetHref) return; // user navigated away
                     const doc     = new DOMParser().parseFromString(html, 'text/html');
                     const newMain = doc.querySelector('main');
                     const curMain = document.querySelector('main');
                     if (newMain && curMain) {
-                        // Preserve scroll position
                         const sy = window.scrollY;
                         curMain.innerHTML = newMain.innerHTML;
+                        // innerHTML does NOT execute <script> tags — clone and re-insert each one
+                        curMain.querySelectorAll('script').forEach(old => {
+                            const s = document.createElement('script');
+                            s.textContent = old.textContent;
+                            old.replaceWith(s);
+                        });
                         window.scrollTo(0, sy);
                     }
                 })
@@ -1321,8 +1328,7 @@
         }
 
         function startPolling() {
-            wasScanning    = false;
-            lastScanPhase  = null;
+            wasScanning = false;
             clearTileStates();
             eachScanBtn(b => { b.textContent = 'Starting…'; b.disabled = true; });
             setScanResetVisible(true);
@@ -1347,17 +1353,6 @@
                         const typeTotals  = d.type_totals ?? {};
                         const counts      = d.counts      ?? {};
                         const cap         = s => s.charAt(0).toUpperCase() + s.slice(1);
-
-                        // ── Live content updates on phase transitions ──
-                        // scanning→metadata: new items just indexed; metadata→people: covers loaded
-                        if (d.phase !== lastScanPhase) {
-                            const prev = lastScanPhase;
-                            lastScanPhase = d.phase;
-                            if ((prev === 'scanning' && isMeta) ||
-                                (prev === 'metadata' && isPeople)) {
-                                softReloadMain();
-                            }
-                        }
 
                         // ── Progress bar ──
                         const bar  = document.getElementById('scan-progress');
@@ -1453,7 +1448,6 @@
 
                         eachScanBtn(b => { b.disabled = false; });
 
-                        lastScanPhase = null;
                         if (wasScanning) {
                             wasScanning = false;
                             eachScanBtn(b => { b.textContent = '✓ Scan complete'; });
