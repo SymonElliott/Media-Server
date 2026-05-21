@@ -285,6 +285,14 @@
         fetch('/scan/log?offset=' + scanOffset)
             .then(r => r.json())
             .then(d => {
+                // The log was cleared for a new scan (file shrank).
+                // Reset so we read from the beginning and don't skip "Scan started".
+                if (d.size < scanOffset) {
+                    scanOffset = 0;
+                    scanLines.innerHTML = '';
+                    scanLogText = '';
+                }
+
                 if (d.text) {
                     scanEmpty.style.display = 'none';
                     appendScanText(d.text);
