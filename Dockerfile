@@ -1,11 +1,12 @@
-FROM php:8.2-apache
+FROM php:8.2-fpm
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# System deps + PHP extensions
+# System deps + PHP extensions + nginx
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libzip-dev \
         libsqlite3-dev \
+        nginx \
         unzip \
     && docker-php-ext-install pdo pdo_sqlite \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
@@ -19,9 +20,12 @@ RUN { \
         echo 'max_input_time = 300'; \
     } > /usr/local/etc/php/conf.d/media-server.ini
 
-# Point Apache at the public/ sub-directory and enable mod_rewrite
-COPY docker/apache.conf /etc/apache2/sites-available/000-default.conf
-RUN a2enmod rewrite
+# Nginx site config
+COPY docker/nginx.conf /etc/nginx/sites-available/default
+
+# Startup script (php-fpm + nginx)
+COPY docker/start.sh /start.sh
+RUN chmod +x /start.sh
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -41,3 +45,5 @@ RUN mkdir -p storage/db storage/cache public/covers \
     && chmod -R 775 storage public/covers
 
 EXPOSE 80
+
+CMD ["/start.sh"]
