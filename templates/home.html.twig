@@ -168,15 +168,3 @@
 {% endif %}
 {% endblock %}
 
-{% block scripts %}
-<script>
-    fetch('/scan/status')
-        .then(r => r.json())
-        .then(d => {
-            if (d.scanning) {
-                wasScanning = true;
-                startPolling();
-            }
-        });
-</script>
-{% endblock %}
