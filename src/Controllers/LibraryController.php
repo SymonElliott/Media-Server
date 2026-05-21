@@ -571,17 +571,18 @@ class LibraryController
 
         $php    = PHP_BINARY;
         $script = realpath(dirname(__DIR__, 2) . '/bin/scan.php');
+        // setsid creates a new session so the child survives PHP-FPM worker recycling
         $cmd = match (true) {
             $filterGroup !== null => sprintf(
-                '%s %s %s %s > /dev/null 2>&1 &',
+                'setsid %s %s %s %s > /dev/null 2>&1 &',
                 escapeshellarg($php), escapeshellarg($script),
                 escapeshellarg($filterType), escapeshellarg($filterGroup)
             ),
             $filterType !== null  => sprintf(
-                '%s %s %s > /dev/null 2>&1 &',
+                'setsid %s %s %s > /dev/null 2>&1 &',
                 escapeshellarg($php), escapeshellarg($script), escapeshellarg($filterType)
             ),
-            default               => sprintf('%s %s > /dev/null 2>&1 &', escapeshellarg($php), escapeshellarg($script)),
+            default               => sprintf('setsid %s %s > /dev/null 2>&1 &', escapeshellarg($php), escapeshellarg($script)),
         };
         exec($cmd);
 
@@ -682,7 +683,7 @@ class LibraryController
 
         $php    = PHP_BINARY;
         $script = realpath(dirname(__DIR__, 2) . '/bin/enrich.php');
-        exec(sprintf('%s %s %s > /dev/null 2>&1 &',
+        exec(sprintf('setsid %s %s %s > /dev/null 2>&1 &',
             escapeshellarg($php),
             escapeshellarg($script),
             escapeshellarg($type === 'audiobooks' ? 'books' : $type)
