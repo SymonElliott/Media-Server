@@ -138,7 +138,8 @@
             transition: color 0.15s, background 0.15s;
         }
         .nav-toggle:hover { color: var(--text); background: var(--surface2); }
-        nav { position: relative; }
+        /* nav is position:sticky (main nav block above) which already creates a positioning
+           context for the .nav-links absolute dropdown — no extra declaration needed. */
         .nav-links {
             display: none;
             position: absolute;

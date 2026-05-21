@@ -164,7 +164,11 @@ class MetadataService
         );
         foreach ($items as $item) {
             if ($onProgress) $onProgress('movies', $item['id'], $item['title'] ?? $item['filename'] ?? '');
-            $this->enrichMovie($item);
+            try {
+                $this->enrichMovie($item);
+            } catch (\Throwable) {
+                // Don't let one bad item abort the whole scan
+            }
             usleep(150_000); // stay well under TMDB rate limit
         }
     }
@@ -186,7 +190,11 @@ class MetadataService
         );
         foreach ($newShows as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
-            $this->enrichShow($row['show_name']); // includes enrichShowSeasons()
+            try {
+                $this->enrichShow($row['show_name']); // includes enrichShowSeasons()
+            } catch (\Throwable) {
+                // Don't let one bad show abort the whole scan
+            }
             usleep(150_000);
         }
 
@@ -209,13 +217,17 @@ class MetadataService
         );
         foreach ($needsSeasons as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
-            $this->enrichShowSeasons($row['show_name'], (int) $row['tmdb_id']);
-            // Stamp any newly-added episodes so they don't trigger this pass on the next scan
-            $this->db->execute(
-                'UPDATE media SET metadata_fetched_at = CURRENT_TIMESTAMP
-                 WHERE type = "shows" AND show_name = ? AND metadata_fetched_at IS NULL',
-                [$row['show_name']]
-            );
+            try {
+                $this->enrichShowSeasons($row['show_name'], (int) $row['tmdb_id']);
+                // Stamp any newly-added episodes so they don't trigger this pass on the next scan
+                $this->db->execute(
+                    'UPDATE media SET metadata_fetched_at = CURRENT_TIMESTAMP
+                     WHERE type = "shows" AND show_name = ? AND metadata_fetched_at IS NULL',
+                    [$row['show_name']]
+                );
+            } catch (\Throwable) {
+                // Don't let one bad show abort the whole scan
+            }
         }
     }
 
@@ -231,7 +243,11 @@ class MetadataService
         );
         foreach ($albums as $album) {
             if ($onProgress) $onProgress('music', $album['author'], $album['author']);
-            $this->enrichAlbum($album['author'], $album['series']);
+            try {
+                $this->enrichAlbum($album['author'], $album['series']);
+            } catch (\Throwable) {
+                // Don't let one bad album abort the whole scan
+            }
             sleep(1); // MusicBrainz: 1 req/second
         }
     }
@@ -256,8 +272,12 @@ class MetadataService
                 $groupParams
               );
         foreach ($items as $item) {
-            if ($onProgress) $onProgress($item['type'], $item['id'], $item['title'] ?? $item['filename'] ?? '');
-            $this->enrichBook($item);
+            if ($onProgress) $onProgress($item['type'], $item['id'], ($item['book_name'] ?? null) ?: ($item['title'] ?? $item['filename'] ?? ''));
+            try {
+                $this->enrichBook($item);
+            } catch (\Throwable) {
+                // Don't let one bad book abort the whole scan
+            }
             usleep(250_000);
         }
     }
@@ -281,7 +301,11 @@ class MetadataService
             // highlighted; fall back to raw book_name for standalone books.
             $groupKey = $book['series'] ?? $book['book_name'];
             if ($onProgress) $onProgress('audiobooks', $groupKey, $cleanTitle);
-            $this->enrichAudiobook($book['book_name'], $book['author'], $cleanTitle);
+            try {
+                $this->enrichAudiobook($book['book_name'], $book['author'], $cleanTitle);
+            } catch (\Throwable) {
+                // Don't let one bad audiobook abort the whole scan
+            }
             usleep(250_000);
         }
 
@@ -298,7 +322,11 @@ class MetadataService
             );
             if ($existing && $existing['metadata_fetched_at']) continue;
             if ($onProgress) $onProgress('audiobooks', $row['series'], $row['series']);
-            $this->enrichSeries($row['series'], $row['author']);
+            try {
+                $this->enrichSeries($row['series'], $row['author']);
+            } catch (\Throwable) {
+                // Don't let one bad series abort the whole scan
+            }
             usleep(250_000);
         }
     }
@@ -322,8 +350,10 @@ class MetadataService
             '',
             $clean
         );
-        // Strip trailing year — passed separately to searchMovie
-        $clean = preg_replace('/\s*\b(19|20)\d{2}\b.*$/', '', $clean);
+        // Strip trailing year (passed separately to searchMovie).
+        // Require at least one space before the year so titles like "1917" or
+        // "2001: A Space Odyssey" are not accidentally truncated to empty strings.
+        $clean = preg_replace('/\s+\b(19|20)\d{2}\b\s*$/', '', $clean);
         return trim($clean);
     }
 
@@ -407,7 +437,9 @@ class MetadataService
 
     private function enrichBook(array $item): void
     {
-        $raw   = $item['title'] ?? $item['filename'];
+        // Prefer the directory-derived book_name (e.g. "The Way of Kings") over the
+        // filename-derived title (often just "book" or a generic placeholder).
+        $raw   = ($item['book_name'] ?? null) ?: ($item['title'] ?? $item['filename']);
         $title = $this->cleanBookSearchTitle($raw, $item['author'] ?? null);
         $meta  = $this->openLibrary->search($title, $item['author']);
         $this->applyToSingle($item['id'], $meta, true);
@@ -706,8 +738,8 @@ class MetadataService
         }
 
         // Fallback: strip common Audible/ISBN suffixes and appended series info from the filename.
-        $clean = preg_replace('/\s*\[B[A-Z0-9]{9,10}\]/i', '', $bookName);   // [BASIN12345]
-        $clean = preg_replace('/\s*\[\d{9,13}\]/', '', $clean);               // [ISBN]
+        $clean = preg_replace('/\s*[\[{]B[A-Z0-9]{9,10}[\]}]/i', '', $bookName); // [BASIN] or {BASIN}
+        $clean = preg_replace('/\s*[\[{]\d{9,13}[\]}]/', '', $clean);             // [ISBN] or {ISBN}
         $clean = preg_replace('/[_:]\s*.{0,60}(,\s*Book\s*[\d.]+)?$/i', '', $clean); // _ Series info, Book N
 
         if ($author) {
