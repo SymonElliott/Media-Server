@@ -114,12 +114,15 @@
             height: 1.7rem;
             border-radius: 6px;
             font-size: 1rem;
-            line-height: 1;
             cursor: pointer;
             padding: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             transition: background 0.15s, color 0.15s, border-color 0.15s;
         }
         .btn-scan-reset:hover { background: #ef4444; border-color: #ef4444; color: #fff; }
+        .btn-scan-reset.hidden { display: none; }
 
         /* ── Nav toggle ── */
         .nav-toggle {
@@ -900,7 +903,7 @@
             <button class="btn-upload" onclick="openRdModal()" id="btn-rd" style="display:none">Real-Debrid</button>
             <button class="btn-upload" onclick="openUploadModal()">Upload</button>
             <button class="btn-scan" onclick="triggerScan()">Scan Library</button>
-            <button class="btn-scan-reset" id="btn-scan-reset" onclick="resetScan()" title="Reset stuck scan" style="display:none">×</button>
+            <button class="btn-scan-reset hidden" id="btn-scan-reset" onclick="resetScan()" title="Reset stuck scan">×</button>
             {% if authUser is defined %}
             <div class="nav-profile-wrap">
                 <button class="nav-profile" id="nav-profile-btn" onclick="toggleProfileMenu()" aria-label="Account">
@@ -1183,7 +1186,7 @@
 
         function setScanResetVisible(visible) {
             const btn = document.getElementById('btn-scan-reset');
-            if (btn) btn.style.display = visible ? 'inline-flex' : 'none';
+            if (btn) btn.classList.toggle('hidden', !visible);
         }
 
         function resetScan() {
