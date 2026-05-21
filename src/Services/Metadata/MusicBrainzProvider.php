@@ -207,17 +207,9 @@ class MusicBrainzProvider
 
     private function coverUrl(string $entity, string $mbid): ?string
     {
-        try {
-            $res = $this->http->get(self::CAA_BASE . "/$entity/$mbid/front-250", [
-                'allow_redirects' => true,
-                'headers'         => ['User-Agent' => $this->userAgent],
-            ]);
-            return $res->getStatusCode() === 200
-                ? self::CAA_BASE . "/$entity/$mbid/front-500"
-                : null;
-        } catch (GuzzleException) {
-            return null;
-        }
+        // Return the URL directly — downloadCover() will attempt the fetch and
+        // discard any non-200 response (e.g. CAA 404), so no pre-flight request needed.
+        return self::CAA_BASE . "/$entity/$mbid/front-500";
     }
 
     private function fetchWikipediaExtract(string $encodedSlug): ?string

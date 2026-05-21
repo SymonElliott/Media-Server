@@ -3,6 +3,11 @@
 
 declare(strict_types=1);
 
+// The Docker ini file sets max_execution_time = 300 which also applies to CLI PHP.
+// Override it here so the scan is never killed mid-run regardless of library size.
+set_time_limit(0);
+ignore_user_abort(true);
+
 $root = dirname(__DIR__);
 
 require $root . '/vendor/autoload.php';
@@ -19,7 +24,7 @@ $filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
 $db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $settings    = new App\Services\Settings($db);
 $libraryPath = $settings->getEnv('MEDIA_PATH', '/media');
-$http        = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
+$http        = new GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 8, 'http_errors' => false]);
 $tmdb        = new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY'));
 $openLib     = new App\Services\Metadata\OpenLibraryProvider($http);
 $audnexus    = new App\Services\Metadata\AudnexusProvider($http);

@@ -72,7 +72,8 @@ class MetadataService
         if ($item['type'] === 'shows' && $item['show_name']) {
             $this->applyToShow($item['show_name'], $meta, true);
             if ($meta['external_id'] ?? null) {
-                $this->enrichShowSeasons($item['show_name'], (int) $meta['external_id']);
+                // Manual match: download episode stills too
+                $this->enrichShowSeasons($item['show_name'], (int) $meta['external_id'], true);
             }
             $this->renamer?->renameShowEpisodes($item['show_name']);
         } elseif ($item['type'] === 'audiobooks' && $item['book_name']) {
@@ -136,7 +137,7 @@ class MetadataService
 
         match ($item['type']) {
             'movies'    => $this->enrichMovie($item),
-            'shows'     => $this->enrichShow($item['show_name']),
+            'shows'     => $this->enrichShow($item['show_name'], true), // manual: include stills
             'music'     => $this->enrichAlbum($item['author'], $item['series']),
             'audiobooks' => $this->enrichAudiobook(
                 $item['book_name'],
@@ -191,7 +192,8 @@ class MetadataService
         foreach ($newShows as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
             try {
-                $this->enrichShow($row['show_name']); // includes enrichShowSeasons()
+                // No episode stills during automated scan — fetched manually via Edit modal
+                $this->enrichShow($row['show_name'], false);
             } catch (\Throwable) {
                 // Don't let one bad show abort the whole scan
             }
@@ -218,7 +220,8 @@ class MetadataService
         foreach ($needsSeasons as $row) {
             if ($onProgress) $onProgress('shows', $row['show_name'], $row['show_name']);
             try {
-                $this->enrichShowSeasons($row['show_name'], (int) $row['tmdb_id']);
+                // Still no episode stills — this pass is also part of the automated scan
+                $this->enrichShowSeasons($row['show_name'], (int) $row['tmdb_id'], false);
                 // Stamp any newly-added episodes so they don't trigger this pass on the next scan
                 $this->db->execute(
                     'UPDATE media SET metadata_fetched_at = CURRENT_TIMESTAMP
@@ -357,19 +360,28 @@ class MetadataService
         return trim($clean);
     }
 
-    private function enrichShow(string $showName): void
+    private function enrichShow(string $showName, bool $downloadStills = false): void
     {
         $meta = $this->tmdb->searchShow($showName);
         $this->applyToShow($showName, $meta, true);
 
         if (($meta['external_id'] ?? null) && ($meta['external_source'] ?? null) === 'tmdb') {
-            $this->enrichShowSeasons($showName, (int) $meta['external_id']);
+            $this->enrichShowSeasons($showName, (int) $meta['external_id'], $downloadStills);
         }
 
         $this->renamer?->renameShowEpisodes($showName);
     }
 
-    private function enrichShowSeasons(string $showName, int $tmdbId): void
+    /**
+     * Fetch per-season data from TMDB: season posters, episode titles, and
+     * optionally episode stills.
+     *
+     * Episode stills are skipped during automated background scans ($downloadStills = false)
+     * because a large library can have thousands of them — each is a separate HTTP
+     * download that adds minutes to the scan.  They are fetched on-demand when the
+     * user explicitly refreshes a show's metadata via the Edit modal.
+     */
+    private function enrichShowSeasons(string $showName, int $tmdbId, bool $downloadStills = false): void
     {
         $seasons = $this->db->query(
             'SELECT DISTINCT season FROM media
@@ -385,16 +397,17 @@ class MetadataService
             $seasonData = $this->tmdb->fetchSeasonDetails($tmdbId, $n);
 
             if ($seasonData) {
-                // Season poster
+                // Season poster (one per season — kept even in fast mode)
                 if ($seasonData['poster_url']) {
                     $poster = $this->downloadCover($seasonData['poster_url'], "season_{$tmdbId}_{$n}");
                     if ($poster) $seasonPosters[$n] = $poster;
                 }
 
-                // Episode titles and stills — match by show_name + season + episode number
+                // Episode titles + stills — match by show_name + season + episode number
                 foreach ($seasonData['episodes'] as $ep) {
+                    // Stills are skipped during automated scans to avoid hundreds of downloads
                     $still = null;
-                    if ($ep['still_url']) {
+                    if ($downloadStills && $ep['still_url']) {
                         $still = $this->downloadCover($ep['still_url'], "ep_{$tmdbId}_{$n}_{$ep['number']}");
                     }
                     $this->db->execute(
@@ -793,7 +806,12 @@ class MetadataService
         }
 
         try {
-            $this->http->get($url, ['sink' => $diskPath, 'timeout' => 15]);
+            $res = $this->http->get($url, ['sink' => $diskPath, 'timeout' => 15]);
+            // Reject non-200 responses (e.g. CAA 404 JSON error bodies that have size > 0)
+            if ($res->getStatusCode() !== 200) {
+                @unlink($diskPath);
+                return null;
+            }
             return file_exists($diskPath) && filesize($diskPath) > 0 ? $webPath : null;
         } catch (\Throwable) {
             @unlink($diskPath);
