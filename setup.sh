@@ -12,4 +12,5 @@ else
   docker compose up -d "$@"
 fi
 
-echo "Done. Open http://$(hostname -I | awk '{print $1}'):8080"
+IP=$(ip route get 1 2>/dev/null | awk '/src/{for(i=1;i<=NF;i++) if($i=="src") print $(i+1)}' | head -1)
+echo "Done. Open http://${IP:-<nas-ip>}:8080"
