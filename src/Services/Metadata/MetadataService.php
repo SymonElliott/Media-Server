@@ -366,25 +366,59 @@ class MetadataService
         $this->renamer?->renameItem($item['id']);
     }
 
+    /**
+     * Reduce a raw movie title / filename to a clean TMDB search string.
+     *
+     * Strategy: replace separators → strip brackets → cut at the first
+     * release year (19xx / 20xx preceded by a space so titles like "1917"
+     * or "2001: A Space Odyssey" are never accidentally truncated).
+     * If no year is found, fall back to stripping known quality/noise tags.
+     */
     private function cleanMovieSearchTitle(string $title): string
     {
+        // Replace common filename separators with spaces
         $clean = str_replace(['.', '_'], ' ', $title);
+
+        // Strip content in brackets / parens (quality tags, year in parens, etc.)
+        $clean = preg_replace('/\s*[\[\(][^\]\)]{0,40}[\]\)]\s*/', ' ', $clean);
+
+        // Primary: truncate at the first 4-digit release year preceded by whitespace.
+        // This handles "Movie Title 2023 FRENCH 1080p BluRay" → "Movie Title" in one step.
+        if (preg_match('/^(.*?)\s+(?:19|20)\d{2}\b/', $clean, $m) && trim($m[1]) !== '') {
+            return trim($m[1]);
+        }
+
+        // Fallback: strip known quality / encoding / language tags and everything after.
         $clean = preg_replace(
-            '/\s+\b(480p|576p|720p|1080p|2160p|4K|UHD|BluRay|Blu-Ray|BDRip|BRRip|WEB[-.]?DL|WEBRip|HDTV|DVDRip|HDRip|x264|x265|H\.?264|H\.?265|HEVC|AVC|AAC|AC3|DTS|HDR|SDR|NF|AMZN|DSNP|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|REMUX)\b.*$/i',
+            '/\s+\b(?:480p|576p|720p|1080p|2160p|4[Kk]|UHD|Blu-?Ray|BDRip|BRRip|WEB-?DL|WEBRip|HDTV|DVDRip|HDRip|x264|x265|H\.?264|H\.?265|HEVC|AVC|AAC|AC3|DTS|HDR|SDR|NF|AMZN|DSNP|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|REMUX|FRENCH|MULTI|MULTi|VOSTFR|TRUEFRENCH)\b.*$/i',
             '',
             $clean
         );
-        // Strip trailing year (passed separately to searchMovie).
-        // Require at least one space before the year so titles like "1917" or
-        // "2001: A Space Odyssey" are not accidentally truncated to empty strings.
-        $clean = preg_replace('/\s+\b(19|20)\d{2}\b\s*$/', '', $clean);
+        return trim($clean);
+    }
+
+    /**
+     * Clean a show folder name for TMDB search: replace dots/underscores
+     * with spaces and strip a trailing release year.
+     *
+     * "The.Flash.2014" → "The Flash"
+     * "Breaking Bad (2008)" → "Breaking Bad"
+     */
+    private function cleanShowSearchTitle(string $name): string
+    {
+        $clean = str_replace(['.', '_'], ' ', $name);
+        // Strip trailing parenthetical year
+        $clean = preg_replace('/\s*\(\s*(?:19|20)\d{2}\s*\)\s*$/', '', $clean);
+        // Strip trailing bare year
+        $clean = preg_replace('/\s+(?:19|20)\d{2}\s*$/', '', $clean);
         return trim($clean);
     }
 
     private function enrichShow(string $showName, bool $downloadStills = false): void
     {
-        $this->log("[shows] \"{$showName}\" → TMDB...");
-        $meta = $this->tmdb->searchShow($showName);
+        $searchName = $this->cleanShowSearchTitle($showName);
+        $this->log("[shows] \"{$searchName}\" → TMDB...");
+        $meta = $this->tmdb->searchShow($searchName);
         if ($meta) {
             $this->log("[shows] \"{$showName}\" ✓ {$meta['title']}" . ($meta['year'] ? " ({$meta['year']})" : ''));
         } else {

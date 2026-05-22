@@ -638,8 +638,12 @@ class LibraryScanner
                 'episode'      => null,
             ],
 
+            // Movies: prefer the folder name over the filename — folder names are
+            // typically clean ("The Batman (2022)") while filenames carry noise
+            // ("The.Batman.2022.1080p.BluRay.x265-GROUP").
+            // Fall back to the filename when the file sits directly in movies/.
             default => [
-                'title'        => $file->getBasename('.' . $file->getExtension()),
+                'title'        => $depth >= 1 ? $parts[0] : $file->getBasename('.' . $file->getExtension()),
                 'author'       => null,
                 'series'       => null,
                 'book_name'    => null,
