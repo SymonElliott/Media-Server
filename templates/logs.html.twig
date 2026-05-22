@@ -283,7 +283,10 @@
     function pollScan() {
         clearTimeout(scanTimer);
         fetch('/scan/log?offset=' + scanOffset)
-            .then(r => r.json())
+            .then(r => {
+                if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+                return r.json();
+            })
             .then(d => {
                 // The log was cleared for a new scan (file shrank).
                 // Reset so we read from the beginning and don't skip "Scan started".
@@ -311,7 +314,16 @@
                 if (scanOffset === 0 && !d.scanning) scanEmpty.style.display = 'block';
                 scanTimer = setTimeout(pollScan, d.scanning ? 800 : 1500);
             })
-            .catch(() => { scanTimer = setTimeout(pollScan, 3000); });
+            .catch(err => {
+                // Show the error inline so it's visible without DevTools
+                scanEmpty.style.display = 'none';
+                const div = document.createElement('div');
+                div.className = 'sle sle--error';
+                div.textContent = '[poll error] ' + err.message + ' — retrying…';
+                scanLines.appendChild(div);
+                if (scanScroll) scanTerminal.scrollTop = scanTerminal.scrollHeight;
+                scanTimer = setTimeout(pollScan, 3000);
+            });
     }
 
     // ── Badge ─────────────────────────────────────────────────────────────────
