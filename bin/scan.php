@@ -8,43 +8,69 @@ declare(strict_types=1);
 set_time_limit(0);
 ignore_user_abort(true);
 
-$root = dirname(__DIR__);
+$root    = dirname(__DIR__);
+$logFile = $root . '/storage/scan.log';
+
+// ── Pre-autoload boot marker ──────────────────────────────────────────────────
+// Written before anything else so it's visible even if autoload crashes.
+// clear() will wipe it a few lines later — but if we never get there, it stays.
+file_put_contents(
+    $logFile,
+    date('[H:i:s]') . ' [BOOT] scan.php launched — PID ' . getmypid() . ', PHP ' . PHP_VERSION . "\n"
+);
 
 require $root . '/vendor/autoload.php';
 
+file_put_contents($logFile, date('[H:i:s]') . " [BOOT] autoload OK\n", FILE_APPEND);
+
 $stateFile = $root . '/storage/scan.json';
-$logFile   = $root . '/storage/scan.log';
 $coversDir = $root . '/public/covers';
 
 $validTypes  = ['movies', 'shows', 'music', 'books'];
 $filterType  = isset($argv[1]) && in_array($argv[1], $validTypes, true) ? $argv[1] : null;
 $filterGroup = isset($argv[2]) && $argv[2] !== '' ? $argv[2] : null;
 
-// ── Logger ────────────────────────────────────────────────────────────────────
-$scanLogger = new App\Services\ScanLogger($logFile);
-$appLogger  = new App\Services\AppLogger($root . '/storage/app.log');
-$scanLogger->clear();
-
 $scanDesc = match(true) {
     $filterGroup !== null => ucfirst($filterType ?? '') . ' › ' . $filterGroup,
     $filterType !== null  => ucfirst($filterType),
     default               => 'full library',
 };
+
+// ── Logger ────────────────────────────────────────────────────────────────────
+$scanLogger = new App\Services\ScanLogger($logFile);
+$appLogger  = new App\Services\AppLogger($root . '/storage/app.log');
+$scanLogger->clear();   // Wipes the [BOOT] lines above — clean slate for this scan
+
+$t0 = microtime(true);
+$elapsed = fn() => sprintf('+%.2fs', microtime(true) - $t0);
+
 $scanLogger->info("Scan started ($scanDesc)");
 $appLogger->info('scan', "Scan started ($scanDesc)");
 
-// ── Service wiring ────────────────────────────────────────────────────────────
-// Settings are read DB-first so any value saved through the UI takes effect
-// here without a container restart.
-$db          = new App\Database\Connection($root . '/storage/db/media.sqlite');
-$settings    = new App\Services\Settings($db);
+// ── Service wiring (logged step by step) ─────────────────────────────────────
+$scanLogger->info('PID ' . getmypid() . '  PHP ' . PHP_VERSION);
+$scanLogger->info('');
+
+$scanLogger->info('Connecting to database…');
+$db = new App\Database\Connection($root . '/storage/db/media.sqlite');
+$scanLogger->info('Database OK  ' . $elapsed());
+
+$scanLogger->info('Loading settings…');
+$settings = new App\Services\Settings($db);
 $libraryPath = dirname(__DIR__) . '/library';
-$http        = new GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 8, 'http_errors' => false]);
-$tmdb        = new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY'));
-$openLib     = new App\Services\Metadata\OpenLibraryProvider($http);
-$audnexus    = new App\Services\Metadata\AudnexusProvider($http);
-$scanner     = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
-$metadata    = new App\Services\Metadata\MetadataService(
+$tmdbKey = $settings->getEnv('TMDB_API_KEY') ? 'set' : 'NOT SET';
+$scanLogger->info("Settings OK  {$elapsed()}  TMDB={$tmdbKey}  library={$libraryPath}");
+
+$scanLogger->info('Building HTTP client…');
+$http = new GuzzleHttp\Client(['timeout' => 15, 'connect_timeout' => 8, 'http_errors' => false]);
+$scanLogger->info('HTTP client OK  ' . $elapsed());
+
+$scanLogger->info('Wiring metadata services…');
+$tmdb    = new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY'));
+$openLib = new App\Services\Metadata\OpenLibraryProvider($http);
+$audnexus = new App\Services\Metadata\AudnexusProvider($http);
+$scanner = new App\Services\LibraryScanner($db, $libraryPath, $stateFile);
+$metadata = new App\Services\Metadata\MetadataService(
     $db,
     $tmdb,
     new App\Services\Metadata\MusicBrainzProvider($http, 'MediaServer/1.0'),
@@ -54,8 +80,8 @@ $metadata    = new App\Services\Metadata\MetadataService(
     $coversDir
 );
 $metadata->setLogger(fn(string $msg) => $scanLogger->info($msg));
-
 $people = new App\Services\PeopleService($db, $tmdb, $audnexus, $openLib, $http, $coversDir);
+$scanLogger->info('Services ready  ' . $elapsed());
 
 // Use existing DB row counts as a fast estimate for the progress total —
 // avoids a full NAS filesystem traversal before the scan even starts.
