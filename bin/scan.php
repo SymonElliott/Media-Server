@@ -39,12 +39,14 @@ $scanDesc = match(true) {
 // ── Logger ────────────────────────────────────────────────────────────────────
 $scanLogger = new App\Services\ScanLogger($logFile);
 $appLogger  = new App\Services\AppLogger($root . '/storage/app.log');
-$scanLogger->clear();   // Wipes the [BOOT] lines above — clean slate for this scan
 
 $t0 = microtime(true);
 $elapsed = fn() => sprintf('+%.2fs', microtime(true) - $t0);
 
-$scanLogger->info("Scan started ($scanDesc)");
+// Overwrite (not append) the log file — atomically replaces the [BOOT]
+// diagnostic markers with "Scan started" so there is never a zero-byte gap
+// that the browser could interpret as "nothing happening yet".
+file_put_contents($logFile, date('[H:i:s]') . " Scan started ($scanDesc)\n", LOCK_EX);
 $appLogger->info('scan', "Scan started ($scanDesc)");
 
 // ── Service wiring (logged step by step) ─────────────────────────────────────

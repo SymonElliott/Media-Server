@@ -309,7 +309,7 @@
                 }
 
                 if (scanOffset === 0 && !d.scanning) scanEmpty.style.display = 'block';
-                scanTimer = setTimeout(pollScan, d.scanning ? 800 : 6000);
+                scanTimer = setTimeout(pollScan, d.scanning ? 800 : 1500);
             })
             .catch(() => { scanTimer = setTimeout(pollScan, 3000); });
     }
