@@ -26,7 +26,8 @@ class LibraryScanner
     private int      $progressWriteCounter = 0;
     private ?array   $typeTotals           = null;
     private ?string  $currentScanName      = null;
-    private ?callable $logger              = null;
+    /** @var callable|null */
+    private $logger = null;
 
     public function __construct(
         private readonly Connection $db,
