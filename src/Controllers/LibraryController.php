@@ -571,20 +571,35 @@ class LibraryController
             ? trim($data['group'])
             : null;
 
+        // PHP_BINARY in an FPM context is the FPM server binary, not the CLI interpreter.
+        // Resolve the CLI binary explicitly so scan.php runs as a normal PHP script.
         $php    = PHP_BINARY;
+        $phpCli = is_executable('/usr/local/bin/php') ? '/usr/local/bin/php' : $php;
         $script = realpath(dirname(__DIR__, 2) . '/bin/scan.php');
-        // setsid creates a new session so the child survives PHP-FPM worker recycling
+        $errLog = dirname(__DIR__, 2) . '/storage/scan-launch.log';
+
+        // Log the resolved paths so any launch failure is diagnosable.
+        file_put_contents($errLog,
+            sprintf("[%s] php=%s cli=%s script=%s\n", date('H:i:s'), $php, $phpCli, var_export($script, true)),
+            FILE_APPEND | LOCK_EX
+        );
+
+        // setsid creates a new session so the child survives PHP-FPM worker recycling.
+        // stderr goes to scan-launch.log so startup crashes are visible.
         $cmd = match (true) {
             $filterGroup !== null => sprintf(
-                'setsid %s %s %s %s > /dev/null 2>&1 &',
-                escapeshellarg($php), escapeshellarg($script),
-                escapeshellarg($filterType), escapeshellarg($filterGroup)
+                'setsid %s %s %s %s >> %s 2>&1 &',
+                escapeshellarg($phpCli), escapeshellarg($script),
+                escapeshellarg($filterType), escapeshellarg($filterGroup),
+                escapeshellarg($errLog)
             ),
             $filterType !== null  => sprintf(
-                'setsid %s %s %s > /dev/null 2>&1 &',
-                escapeshellarg($php), escapeshellarg($script), escapeshellarg($filterType)
+                'setsid %s %s %s >> %s 2>&1 &',
+                escapeshellarg($phpCli), escapeshellarg($script),
+                escapeshellarg($filterType), escapeshellarg($errLog)
             ),
-            default               => sprintf('setsid %s %s > /dev/null 2>&1 &', escapeshellarg($php), escapeshellarg($script)),
+            default               => sprintf('setsid %s %s >> %s 2>&1 &',
+                escapeshellarg($phpCli), escapeshellarg($script), escapeshellarg($errLog)),
         };
         exec($cmd);
 
