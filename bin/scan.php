@@ -81,6 +81,7 @@ $metadata = new App\Services\Metadata\MetadataService(
     $http,
     $coversDir
 );
+$scanner->setLogger(fn(string $msg) => $scanLogger->info($msg));
 $metadata->setLogger(fn(string $msg) => $scanLogger->info($msg));
 $people = new App\Services\PeopleService($db, $tmdb, $audnexus, $openLib, $http, $coversDir);
 $scanLogger->info('Services ready  ' . $elapsed());

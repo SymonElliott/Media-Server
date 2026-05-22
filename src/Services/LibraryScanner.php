@@ -23,15 +23,29 @@ class LibraryScanner
 
     private const AUDIO_EXTS = ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'];
 
-    private int    $progressWriteCounter = 0;
-    private ?array $typeTotals           = null;
-    private ?string $currentScanName     = null;
+    private int      $progressWriteCounter = 0;
+    private ?array   $typeTotals           = null;
+    private ?string  $currentScanName      = null;
+    private ?callable $logger              = null;
 
     public function __construct(
         private readonly Connection $db,
         private readonly string $libraryPath,
         private readonly ?string $stateFile = null
     ) {}
+
+    /** Attach a logger so Phase 1 writes progress lines to scan.log. */
+    public function setLogger(callable $logger): void
+    {
+        $this->logger = $logger;
+    }
+
+    private function log(string $msg): void
+    {
+        if ($this->logger !== null) {
+            ($this->logger)($msg);
+        }
+    }
 
     /** Inject pre-counted file totals (e.g. from DB row counts) so writeState() can report them. */
     public function setTypeTotals(array $totals): void
@@ -88,7 +102,10 @@ class LibraryScanner
                 new RecursiveDirectoryIterator($scanRoot, RecursiveDirectoryIterator::SKIP_DOTS)
             );
 
-            $scannedPaths = [];
+            $scannedPaths  = [];
+            $typeAdded     = 0;
+            $typeUpdated   = 0;
+            $typeSkipped   = 0;
 
             foreach ($iterator as $file) {
                 if (!$file->isFile()) {
@@ -106,28 +123,41 @@ class LibraryScanner
                 }
 
                 // Track the top-level directory (artist/author/show/movie-folder) and
-                // emit a state update when we enter a new one — gives real-time visibility
-                // into what the scanner is currently indexing.
+                // emit a state update + log line when we enter a new one.
                 $relPath = ltrim(substr($file->getPath(), strlen($scanRoot)), '/');
                 $topDir  = $relPath !== '' ? explode('/', $relPath)[0] : null;
                 if ($topDir !== null && $topDir !== $this->currentScanName) {
                     $this->currentScanName = $topDir;
                     $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
+                    $this->log('  ' . ucfirst($type) . ' › ' . $topDir);
                 }
 
                 $scannedPaths[] = $file->getRealPath();
 
                 try {
                     $isNew = $this->indexFile($file, $type);
-                    $isNew ? $stats['added']++ : $stats['updated']++;
+                    if ($isNew) {
+                        $stats['added']++;
+                        $typeAdded++;
+                    } else {
+                        $stats['updated']++;
+                        $typeUpdated++;
+                    }
                 } catch (\Exception) {
                     $stats['skipped']++;
+                    $typeSkipped++;
                 }
 
                 if (++$this->progressWriteCounter % 20 === 0) {
                     $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
                 }
             }
+
+            // Log per-type summary
+            $this->log(sprintf(
+                '  %s done — %d added · %d updated · %d skipped',
+                ucfirst($type), $typeAdded, $typeUpdated, $typeSkipped
+            ));
 
             // Skip stale pruning for group scans — a full scan will clean up removed files
             if (!$onlyGroup) {

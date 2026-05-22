@@ -22,6 +22,12 @@ class Connection
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
         ]);
 
+        // WAL mode: readers don't block the writer and the writer doesn't block readers,
+        // so web requests can proceed while a background scan is writing.
+        // busy_timeout: retry for up to 10 s instead of throwing SQLSTATE HY000 immediately.
+        $this->pdo->exec('PRAGMA journal_mode = WAL');
+        $this->pdo->exec('PRAGMA busy_timeout = 10000');
+
         $this->migrate();
     }
 
