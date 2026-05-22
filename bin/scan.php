@@ -94,6 +94,7 @@ $scanner->setTypeTotals($typeTotals);
 
 file_put_contents($stateFile, json_encode([
     'running'      => true,
+    'pid'          => getmypid(),
     'phase'        => 'scanning',
     'current_type' => null,
     'total'        => $fileTotal,

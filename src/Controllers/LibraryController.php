@@ -571,35 +571,24 @@ class LibraryController
             ? trim($data['group'])
             : null;
 
-        // PHP_BINARY in an FPM context is the FPM server binary, not the CLI interpreter.
-        // Resolve the CLI binary explicitly so scan.php runs as a normal PHP script.
-        $php    = PHP_BINARY;
-        $phpCli = is_executable('/usr/local/bin/php') ? '/usr/local/bin/php' : $php;
+        // PHP_BINARY in an FPM context is the FPM server binary (php-fpm), not the
+        // CLI interpreter.  Use the explicit CLI path so scan.php runs as a script.
+        $phpCli = is_executable('/usr/local/bin/php') ? '/usr/local/bin/php' : PHP_BINARY;
         $script = realpath(dirname(__DIR__, 2) . '/bin/scan.php');
-        $errLog = dirname(__DIR__, 2) . '/storage/scan-launch.log';
-
-        // Log the resolved paths so any launch failure is diagnosable.
-        file_put_contents($errLog,
-            sprintf("[%s] php=%s cli=%s script=%s\n", date('H:i:s'), $php, $phpCli, var_export($script, true)),
-            FILE_APPEND | LOCK_EX
-        );
 
         // setsid creates a new session so the child survives PHP-FPM worker recycling.
-        // stderr goes to scan-launch.log so startup crashes are visible.
         $cmd = match (true) {
             $filterGroup !== null => sprintf(
-                'setsid %s %s %s %s >> %s 2>&1 &',
+                'setsid %s %s %s %s > /dev/null 2>&1 &',
                 escapeshellarg($phpCli), escapeshellarg($script),
-                escapeshellarg($filterType), escapeshellarg($filterGroup),
-                escapeshellarg($errLog)
+                escapeshellarg($filterType), escapeshellarg($filterGroup)
             ),
             $filterType !== null  => sprintf(
-                'setsid %s %s %s >> %s 2>&1 &',
-                escapeshellarg($phpCli), escapeshellarg($script),
-                escapeshellarg($filterType), escapeshellarg($errLog)
+                'setsid %s %s %s > /dev/null 2>&1 &',
+                escapeshellarg($phpCli), escapeshellarg($script), escapeshellarg($filterType)
             ),
-            default               => sprintf('setsid %s %s >> %s 2>&1 &',
-                escapeshellarg($phpCli), escapeshellarg($script), escapeshellarg($errLog)),
+            default               => sprintf('setsid %s %s > /dev/null 2>&1 &',
+                escapeshellarg($phpCli), escapeshellarg($script)),
         };
         exec($cmd);
 
@@ -652,6 +641,20 @@ class LibraryController
     public function resetScan(Request $request, Response $response): Response
     {
         $stateFile = dirname(__DIR__, 2) . '/storage/scan.json';
+        $state     = file_exists($stateFile)
+            ? (json_decode(file_get_contents($stateFile), true) ?? [])
+            : [];
+
+        // Kill the background scan process if we recorded its PID.
+        $pid = isset($state['pid']) ? (int) $state['pid'] : 0;
+        if ($pid > 1 && ($state['running'] ?? false)) {
+            if (function_exists('posix_kill')) {
+                posix_kill($pid, SIGTERM);
+            } else {
+                exec('kill -TERM ' . $pid . ' 2>/dev/null');
+            }
+        }
+
         file_put_contents($stateFile, json_encode(['running' => false]), LOCK_EX);
         $response->getBody()->write(json_encode(['reset' => true]));
         return $response->withHeader('Content-Type', 'application/json');
@@ -696,12 +699,17 @@ class LibraryController
             ? (json_decode(file_get_contents($stateFile), true) ?? [])
             : [];
 
+        // Sanitise: scan.log may contain non-UTF-8 bytes from metadata (author
+        // names, titles from external APIs).  json_encode() returns false on
+        // invalid UTF-8, which breaks the browser's JSON.parse().
+        $text = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+
         $response->getBody()->write(json_encode([
             'text'        => $text,
             'size'        => $size,
             'scanning'    => (bool) ($state['running'] ?? false),
             'finished_at' => $state['finished_at'] ?? null,
-        ]));
+        ], JSON_INVALID_UTF8_SUBSTITUTE));
         return $response->withHeader('Content-Type', 'application/json');
     }
 
