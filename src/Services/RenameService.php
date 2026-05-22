@@ -104,7 +104,10 @@ class RenameService
         $episode = $item['episode']   ?? null;
         if (!$show || $season === null || $episode === null) return null;
 
-        $showDir = $this->safe($show);
+        // Include first-air year in the folder (and file) name once metadata is known.
+        // year is NULL until TMDB enrichment runs, so pre-metadata files are untouched.
+        $year    = $item['year'] ? ' (' . $item['year'] . ')' : '';
+        $showDir = $this->safe($show) . $year;
         $s       = str_pad((string) $season, 2, '0', STR_PAD_LEFT);
         $e       = str_pad((string) $episode, 2, '0', STR_PAD_LEFT);
         $title   = $item['title'] ? ' - ' . $this->safe($item['title']) : '';
