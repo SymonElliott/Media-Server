@@ -639,6 +639,7 @@ class LibraryController
             'processed'         => (int) ($state['processed'] ?? 0),
             'type_totals'       => $state['type_totals'] ?? null,
             'finished_at'       => $state['finished_at'] ?? null,
+            'error'             => $state['error'] ?? null,
             'stats'             => [
                 'added'   => $state['added']   ?? 0,
                 'updated' => $state['updated'] ?? 0,

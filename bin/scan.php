@@ -18,6 +18,12 @@ file_put_contents(
     date('[H:i:s]') . ' [BOOT] scan.php launched — PID ' . getmypid() . ', PHP ' . PHP_VERSION . "\n"
 );
 
+// Redirect ALL PHP errors (notices, warnings, fatals) into scan.log so crashes
+// are visible instead of silently vanishing into /dev/null.
+ini_set('log_errors',  '1');
+ini_set('error_log',   $logFile);
+ini_set('display_errors', '0');
+
 require $root . '/vendor/autoload.php';
 require $root . '/src/Bootstrap/env.php';
 
@@ -30,14 +36,23 @@ $coversDir = $root . '/public/covers';
 // Runs on every exit path: normal completion, uncaught exception, fatal error,
 // or SIGTERM/SIGKILL.  If the state file still says running=true when we get
 // here, something went wrong — mark it finished so the UI isn't stuck.
-register_shutdown_function(static function () use ($stateFile): void {
+register_shutdown_function(static function () use ($stateFile, $logFile): void {
     $raw   = @file_get_contents($stateFile);
     $state = ($raw !== false) ? (json_decode($raw, true) ?? []) : [];
     if ($state['running'] ?? false) {
+        // Pick up any PHP fatal error that was just recorded
+        $lastErr   = error_get_last();
+        $errDetail = $lastErr
+            ? sprintf('%s in %s:%d', $lastErr['message'], $lastErr['file'], $lastErr['line'])
+            : 'Scan process exited unexpectedly';
+
+        // Write to scan.log so the crash is always visible in the Logs tab
+        file_put_contents($logFile, date('[H:i:s]') . " FATAL (shutdown): {$errDetail}\n", FILE_APPEND);
+
         file_put_contents($stateFile, json_encode(array_merge($state, [
             'running'     => false,
             'finished_at' => date('c'),
-            'error'       => 'Scan process exited unexpectedly',
+            'error'       => $errDetail,
         ])), LOCK_EX);
     }
 });

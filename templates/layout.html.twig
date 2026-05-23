@@ -1462,7 +1462,12 @@
 
                         eachScanBtn(b => { b.disabled = false; });
 
-                        if (wasScanning) {
+                        if (d.error && wasScanning) {
+                            wasScanning = false;
+                            showToast('Scan failed: ' + d.error, 8000);
+                            eachScanBtn(b => { b.textContent = '✗ Scan failed'; });
+                            setTimeout(() => { eachScanBtn(b => { b.textContent = getScanBtnLabel(); }); }, 5000);
+                        } else if (wasScanning) {
                             wasScanning = false;
                             eachScanBtn(b => { b.textContent = '✓ Scan complete'; });
                             softReloadMain();
@@ -1528,11 +1533,11 @@
             });
         })();
 
-        function showToast(msg) {
+        function showToast(msg, duration = 4000) {
             const t = document.getElementById('toast');
             t.textContent = msg;
             t.classList.add('show');
-            setTimeout(() => t.classList.remove('show'), 4000);
+            setTimeout(() => t.classList.remove('show'), duration);
         }
 
         // ── Upload modal ──────────────────────────────────────────────────────
