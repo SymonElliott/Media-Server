@@ -19,6 +19,7 @@ file_put_contents(
 );
 
 require $root . '/vendor/autoload.php';
+require $root . '/src/Bootstrap/env.php';
 
 file_put_contents($logFile, date('[H:i:s]') . " [BOOT] autoload OK\n", FILE_APPEND);
 
@@ -73,7 +74,9 @@ $scanLogger->info('Database OK  ' . $elapsed());
 
 $scanLogger->info('Loading settings…');
 $settings    = new App\Services\Settings($db);
-$libraryPath = dirname(__DIR__) . '/library';
+// Prefer LIBRARY_PATH env var (local dev / custom mounts); fall back to the
+// standard Docker volume mount location.
+$libraryPath = (string) (getenv('LIBRARY_PATH') ?: ($_ENV['LIBRARY_PATH'] ?? dirname(__DIR__) . '/library'));
 $tmdbKey     = $settings->getEnv('TMDB_API_KEY') ? 'set' : 'NOT SET';
 $scanLogger->info("Settings OK  {$elapsed()}  TMDB={$tmdbKey}  library={$libraryPath}");
 

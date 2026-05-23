@@ -6,6 +6,7 @@ declare(strict_types=1);
 $root = dirname(__DIR__);
 
 require $root . '/vendor/autoload.php';
+require $root . '/src/Bootstrap/env.php';
 
 $type      = $argv[1] ?? null;
 $stateFile = $root . '/storage/scan.json';

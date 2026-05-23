@@ -31,10 +31,11 @@ use GuzzleHttp\Client;
 use Twig\Environment;
 use Twig\Loader\FilesystemLoader;
 
-// Library is always the `library/` directory at the application root.
-// Mount your media there in docker-compose (or create a symlink for local dev).
-// No user-configurable path setting is needed.
-$libraryRoot = dirname(__DIR__, 2) . '/library';
+// Library root: prefer the LIBRARY_PATH environment variable so local dev can
+// point at a different location (e.g. a mounted NAS share) without touching
+// docker-compose.yml.  In production the Docker volume mount makes
+// `<app-root>/library` correct, so the fallback covers that case.
+$libraryRoot = (string) (getenv('LIBRARY_PATH') ?: ($_ENV['LIBRARY_PATH'] ?? dirname(__DIR__, 2) . '/library'));
 
 return [
     AppLogger::class => function () {
