@@ -110,11 +110,20 @@ class LibraryScanner
             // CATCH_GET_CHILD silently skips subdirectories that cannot be opened
             // (permission denied, bad symlink, NFS stale handle, etc.) instead of
             // throwing and aborting the entire scan.
-            $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($scanRoot, RecursiveDirectoryIterator::SKIP_DOTS),
-                RecursiveIteratorIterator::LEAVES_ONLY,
-                RecursiveIteratorIterator::CATCH_GET_CHILD
-            );
+            try {
+                $iterator = new RecursiveIteratorIterator(
+                    new RecursiveDirectoryIterator($scanRoot, RecursiveDirectoryIterator::SKIP_DOTS),
+                    RecursiveIteratorIterator::LEAVES_ONLY,
+                    RecursiveIteratorIterator::CATCH_GET_CHILD
+                );
+            } catch (\Throwable $e) {
+                $this->log(sprintf(
+                    '  ERROR: cannot open %s — %s (check directory permissions)',
+                    $scanRoot,
+                    $e->getMessage()
+                ));
+                continue;
+            }
 
             $scannedPaths  = [];
             $typeAdded     = 0;
