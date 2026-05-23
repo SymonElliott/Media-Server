@@ -47,6 +47,11 @@ return [
             'cache'       => false,
             'auto_reload' => true,
         ]);
+
+        // Expose app version (from VERSION file) to every template
+        $versionFile = __DIR__ . '/../../VERSION';
+        $env->addGlobal('appVersion', trim((string) (file_exists($versionFile) ? file_get_contents($versionFile) : '?')));
+
         $env->addFilter(new \Twig\TwigFilter('json_decode', fn($v) => json_decode($v ?? '{}', true) ?? []));
         $env->addFilter(new \Twig\TwigFilter('filesize', function (?int $bytes): string {
             if ($bytes === null || $bytes <= 0) return '0 B';
