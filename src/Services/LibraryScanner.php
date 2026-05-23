@@ -81,9 +81,17 @@ class LibraryScanner
     {
         $stats = ['added' => 0, 'updated' => 0, 'skipped' => 0];
 
+        // Diagnostic: confirm scan() was entered and the library root is accessible.
+        $this->log(sprintf(
+            'Library root: %s  [%s]',
+            $this->libraryPath,
+            is_dir($this->libraryPath) ? 'ok' : 'NOT FOUND'
+        ));
+
         foreach (($onlyType ? [$onlyType] : array_keys(self::EXTENSIONS)) as $type) {
             $typePath = $this->libraryPath . '/' . $type;
             if (!is_dir($typePath)) {
+                $this->log("  {$type}/  → directory not found, skipping");
                 continue;
             }
 

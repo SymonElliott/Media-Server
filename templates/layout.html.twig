@@ -1158,6 +1158,7 @@
     <script>
         let scanPollTimer   = null;
         let wasScanning     = false;
+        let scanTriggeredAt = null;   // ISO string set when user clicks Scan
         let activeTileType  = null;
         let doneTileTypes   = new Set();
         let spinItemId      = null;
@@ -1342,7 +1343,8 @@
         }
 
         function startPolling() {
-            wasScanning = false;
+            wasScanning     = false;
+            scanTriggeredAt = new Date().toISOString();
             clearTileStates();
             eachScanBtn(b => { b.textContent = 'Starting…'; b.disabled = true; });
             setScanResetVisible(true);
@@ -1462,12 +1464,18 @@
 
                         eachScanBtn(b => { b.disabled = false; });
 
-                        if (d.error && wasScanning) {
+                        // Did this scan complete after we triggered it?
+                        // Use finished_at to catch scans that finished before wasScanning was set
+                        // (i.e. completed faster than the first poll — common for small libraries).
+                        const finishedAfterTrigger = scanTriggeredAt && d.finished_at
+                            && new Date(d.finished_at) >= new Date(scanTriggeredAt);
+
+                        if (d.error && (wasScanning || finishedAfterTrigger)) {
                             wasScanning = false;
                             showToast('Scan failed: ' + d.error, 8000);
                             eachScanBtn(b => { b.textContent = '✗ Scan failed'; });
                             setTimeout(() => { eachScanBtn(b => { b.textContent = getScanBtnLabel(); }); }, 5000);
-                        } else if (wasScanning) {
+                        } else if (wasScanning || finishedAfterTrigger) {
                             wasScanning = false;
                             eachScanBtn(b => { b.textContent = '✓ Scan complete'; });
                             softReloadMain();
