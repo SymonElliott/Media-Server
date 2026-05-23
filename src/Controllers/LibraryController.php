@@ -571,25 +571,11 @@ class LibraryController
             ? trim($data['group'])
             : null;
 
-        // PHP_BINARY in an FPM context is the FPM server binary (php-fpm), not the
-        // CLI interpreter.  Use the explicit CLI path so scan.php runs as a script.
-        $phpCli = is_executable('/usr/local/bin/php') ? '/usr/local/bin/php' : PHP_BINARY;
+        $phpCli = $this->findPhpCli();
         $script = realpath(dirname(__DIR__, 2) . '/bin/scan.php');
 
-        // setsid creates a new session so the child survives PHP-FPM worker recycling.
-        $cmd = match (true) {
-            $filterGroup !== null => sprintf(
-                'setsid %s %s %s %s > /dev/null 2>&1 &',
-                escapeshellarg($phpCli), escapeshellarg($script),
-                escapeshellarg($filterType), escapeshellarg($filterGroup)
-            ),
-            $filterType !== null  => sprintf(
-                'setsid %s %s %s > /dev/null 2>&1 &',
-                escapeshellarg($phpCli), escapeshellarg($script), escapeshellarg($filterType)
-            ),
-            default               => sprintf('setsid %s %s > /dev/null 2>&1 &',
-                escapeshellarg($phpCli), escapeshellarg($script)),
-        };
+        $scriptArgs = array_filter([$filterType, $filterGroup], fn($v) => $v !== null);
+        $cmd        = $this->buildBgCmd($phpCli, $script, $scriptArgs);
         exec($cmd);
 
         $scanDesc = match (true) {
@@ -794,13 +780,9 @@ class LibraryController
             $this->db->execute('UPDATE media SET metadata_fetched_at = NULL WHERE type = ?', [$type]);
         }
 
-        $php    = PHP_BINARY;
         $script = realpath(dirname(__DIR__, 2) . '/bin/enrich.php');
-        exec(sprintf('setsid %s %s %s > /dev/null 2>&1 &',
-            escapeshellarg($php),
-            escapeshellarg($script),
-            escapeshellarg($type === 'audiobooks' ? 'books' : $type)
-        ));
+        $cmd    = $this->buildBgCmd($this->findPhpCli(), $script, [$type === 'audiobooks' ? 'books' : $type]);
+        exec($cmd);
         $this->log->info('metadata', "Bulk metadata refresh queued for {$type}");
 
         $redirect = in_array($type, self::VALID_TYPES, true) ? $type : 'books';
@@ -1539,5 +1521,51 @@ class LibraryController
         }
         usort($entries, fn($a, $b) => ($b['is_dir'] <=> $a['is_dir']) ?: strnatcasecmp($a['name'], $b['name']));
         return $entries;
+    }
+
+    // ── Background-process helpers ────────────────────────────────────────────
+
+    /**
+     * Locate the CLI PHP binary.
+     *
+     * PHP_BINARY under PHP-FPM is the FPM daemon, not the CLI interpreter.
+     * We try known install paths first and fall back to PHP_BINARY (which is
+     * correct when running via the built-in server or CLI directly).
+     */
+    private function findPhpCli(): string
+    {
+        foreach ([
+            '/usr/local/bin/php',       // Linux packages, old Homebrew
+            '/opt/homebrew/bin/php',    // Homebrew on Apple Silicon / Intel
+        ] as $candidate) {
+            if (is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+        return PHP_BINARY;
+    }
+
+    /**
+     * Build a shell command that runs $script with $args in the background,
+     * detached from the current process so it survives FPM worker recycling.
+     *
+     * - Linux / Docker : uses `setsid` (creates a new session)
+     * - macOS dev      : uses `nohup` (`setsid` is not shipped with macOS)
+     * - Fallback       : plain `&` (safe for the built-in PHP server)
+     */
+    private function buildBgCmd(string $phpBin, string $script, array $args = []): string
+    {
+        $detach = match (true) {
+            is_executable('/usr/bin/setsid') => 'setsid',
+            is_executable('/bin/setsid')     => 'setsid',
+            is_executable('/usr/bin/nohup')  => 'nohup',
+            is_executable('/bin/nohup')      => 'nohup',
+            default                          => '',
+        };
+
+        $parts = array_map('escapeshellarg', array_merge([$phpBin, $script], $args));
+        $base  = implode(' ', $parts) . ' > /dev/null 2>&1 &';
+
+        return $detach !== '' ? "{$detach} {$base}" : $base;
     }
 }
