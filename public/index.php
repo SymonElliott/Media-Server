@@ -15,6 +15,7 @@ AppFactory::setContainer($container);
 $app = AppFactory::create();
 
 $app->addRoutingMiddleware();
+$app->add($container->get(\App\Middleware\CsrfMiddleware::class));
 $debug = $container->get(\App\Services\Settings::class)->getEnv('APP_DEBUG', 'false') === 'true';
 $app->addErrorMiddleware($debug, true, true);
 

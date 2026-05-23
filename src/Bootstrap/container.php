@@ -13,6 +13,7 @@ use App\Controllers\SettingsController;
 use App\Controllers\UploadController;
 use App\Controllers\UsersController;
 use App\Middleware\AuthMiddleware;
+use App\Middleware\CsrfMiddleware;
 use App\Services\PeopleService;
 use App\Database\Connection;
 use App\Services\LibraryScanner;
@@ -103,6 +104,10 @@ return [
 
     AudnexusProvider::class => function ($c) {
         return new AudnexusProvider($c->get(Client::class));
+    },
+
+    CsrfMiddleware::class => function ($c) {
+        return new \App\Middleware\CsrfMiddleware();
     },
 
     MetadataService::class => function ($c) {

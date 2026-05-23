@@ -173,4 +173,67 @@ class MediaController
         $response->getBody()->write(json_encode(['applied' => true]));
         return $response->withHeader('Content-Type', 'application/json');
     }
+
+    public function search(Request $request, Response $response): Response
+    {
+        $params = $request->getQueryParams();
+        $query  = trim($params['q'] ?? '');
+        $type   = $params['type'] ?? null;
+        $page   = max(1, (int) ($params['page'] ?? 1));
+        $limit  = min(100, (int) ($params['limit'] ?? 20)); // Max 100 items per page
+        $offset = ($page - 1) * $limit;
+
+        if (!$query) {
+            $response->getBody()->write(json_encode([
+                'items' => [],
+                'total' => 0,
+                'page' => $page,
+                'pages' => 0
+            ]));
+            return $response->withHeader('Content-Type', 'application/json');
+        }
+
+        // Build search query with wildcards
+        $searchTerm = "%{$query}%";
+        
+        // Base query - search in title, author, show_name, series, book_name
+        $baseQuery = "SELECT * FROM media WHERE 
+            (title LIKE ? OR author LIKE ? OR show_name LIKE ? OR series LIKE ? OR book_name LIKE ?)";
+        
+        $params = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm];
+        
+        // Filter by type if specified
+        if ($type && in_array($type, ['movies', 'shows', 'music', 'books', 'audiobooks'])) {
+            $baseQuery .= " AND type = ?";
+            $params[] = $type;
+        }
+        
+        // Add ordering
+        $baseQuery .= " ORDER BY type, title LIMIT ? OFFSET ?";
+        $params[] = $limit;
+        $params[] = $offset;
+        
+        // Get total count for pagination
+        $countQuery = "SELECT COUNT(*) as total FROM media WHERE 
+            (title LIKE ? OR author LIKE ? OR show_name LIKE ? OR series LIKE ? OR book_name LIKE ?)";
+        
+        if ($type && in_array($type, ['movies', 'shows', 'music', 'books', 'audiobooks'])) {
+            $countQuery .= " AND type = ?";
+            $params[] = $type;
+        }
+        
+        $total = $this->db->first($countQuery, array_slice($params, 0, 5))['total'] ?? 0;
+        
+        // Get items
+        $items = $this->db->query($baseQuery, $params);
+        
+        $response->getBody()->write(json_encode([
+            'items' => $items,
+            'total' => $total,
+            'page' => $page,
+            'pages' => ceil($total / $limit)
+        ]));
+        
+        return $response->withHeader('Content-Type', 'application/json');
+    }
 }

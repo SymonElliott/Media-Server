@@ -91,6 +91,7 @@ return function (App $app): void {
 
     // Media CRUD + metadata search/match API
     $app->get('/api/metadata/search', MediaController::class . ':searchMetadata');
+    $app->get('/api/media/search', MediaController::class . ':search');
     $app->delete('/api/media/group', MediaController::class . ':deleteGroup');
     $app->get('/api/media/{id}', MediaController::class . ':get');
     $app->patch('/api/media/{id}', MediaController::class . ':update');

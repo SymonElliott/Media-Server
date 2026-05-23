@@ -34,6 +34,9 @@ class Connection
             // has a journal mode set and will continue to work correctly.
         }
 
+        // Enable foreign key constraints
+        $this->pdo->exec('PRAGMA foreign_keys = ON');
+
         $this->migrate();
     }
 
@@ -183,6 +186,13 @@ class Connection
             CREATE INDEX IF NOT EXISTS idx_media_type   ON media(type);
             CREATE INDEX IF NOT EXISTS idx_media_show   ON media(show_name);
             CREATE INDEX IF NOT EXISTS idx_media_author ON media(author);
+            CREATE INDEX IF NOT EXISTS idx_media_series ON media(series);
+            CREATE INDEX IF NOT EXISTS idx_media_title  ON media(title);
+            CREATE INDEX IF NOT EXISTS idx_media_year   ON media(year);
+            CREATE INDEX IF NOT EXISTS idx_media_book_name ON media(book_name);
+            CREATE INDEX IF NOT EXISTS idx_media_season ON media(season);
+            CREATE INDEX IF NOT EXISTS idx_media_episode ON media(episode);
+            CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
         SQL);
 
         // Add columns that existing DBs won't have yet (must run before index creation below)
