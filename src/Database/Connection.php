@@ -61,8 +61,10 @@ class Connection
 
     public function first(string $sql, array $params = []): ?array
     {
-        $results = $this->query($sql, $params);
-        return $results[0] ?? null;
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute($params);
+        $row = $stmt->fetch();
+        return $row !== false ? $row : null;
     }
 
     private function migrate(): void

@@ -70,13 +70,22 @@ class MediaController
         $item = $this->db->first('SELECT path, title, type FROM media WHERE id = ?', [$id]);
         if (!$item) return $response->withStatus(404);
 
-        if (file_exists($item['path'])) {
-            unlink($item['path']);
+        $filePath = $item['path'];
+        if (file_exists($filePath)) {
+            unlink($filePath);
+            // Remove empty parent directory (e.g. a movie's own folder)
+            $parentDir = dirname($filePath);
+            if (is_dir($parentDir)) {
+                $remaining = array_diff((array) scandir($parentDir), ['.', '..', '.DS_Store']);
+                if (empty($remaining)) {
+                    @rmdir($parentDir);
+                }
+            }
         }
         $this->db->execute('DELETE FROM media WHERE id = ?', [$id]);
         $this->log?->info('media', sprintf(
             'Deleted "%s" (id=%d, type=%s)',
-            $item['title'] ?? basename($item['path']),
+            $item['title'] ?? basename($filePath),
             $id,
             $item['type'] ?? '?'
         ));
@@ -187,53 +196,39 @@ class MediaController
             $response->getBody()->write(json_encode([
                 'items' => [],
                 'total' => 0,
-                'page' => $page,
-                'pages' => 0
+                'page'  => $page,
+                'pages' => 0,
             ]));
             return $response->withHeader('Content-Type', 'application/json');
         }
 
         // Build search query with wildcards
         $searchTerm = "%{$query}%";
-        
-        // Base query - search in title, author, show_name, series, book_name
-        $baseQuery = "SELECT * FROM media WHERE 
-            (title LIKE ? OR author LIKE ? OR show_name LIKE ? OR series LIKE ? OR book_name LIKE ?)";
-        
-        $params = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm];
-        
-        // Filter by type if specified
-        if ($type && in_array($type, ['movies', 'shows', 'music', 'books', 'audiobooks'])) {
-            $baseQuery .= " AND type = ?";
-            $params[] = $type;
+
+        $whereClause  = '(title LIKE ? OR author LIKE ? OR show_name LIKE ? OR series LIKE ? OR book_name LIKE ?)';
+        $searchParams = [$searchTerm, $searchTerm, $searchTerm, $searchTerm, $searchTerm];
+
+        // Build type filter separately so count and fetch queries share the same param set
+        $typeFilter  = '';
+        $typeParams  = [];
+        if ($type && in_array($type, ['movies', 'shows', 'music', 'books', 'audiobooks'], true)) {
+            $typeFilter = ' AND type = ?';
+            $typeParams = [$type];
         }
-        
-        // Add ordering
-        $baseQuery .= " ORDER BY type, title LIMIT ? OFFSET ?";
-        $params[] = $limit;
-        $params[] = $offset;
-        
-        // Get total count for pagination
-        $countQuery = "SELECT COUNT(*) as total FROM media WHERE 
-            (title LIKE ? OR author LIKE ? OR show_name LIKE ? OR series LIKE ? OR book_name LIKE ?)";
-        
-        if ($type && in_array($type, ['movies', 'shows', 'music', 'books', 'audiobooks'])) {
-            $countQuery .= " AND type = ?";
-            $params[] = $type;
-        }
-        
-        $total = $this->db->first($countQuery, array_slice($params, 0, 5))['total'] ?? 0;
-        
-        // Get items
-        $items = $this->db->query($baseQuery, $params);
-        
+
+        $countQuery = "SELECT COUNT(*) as total FROM media WHERE {$whereClause}{$typeFilter}";
+        $total      = $this->db->first($countQuery, array_merge($searchParams, $typeParams))['total'] ?? 0;
+
+        $baseQuery = "SELECT * FROM media WHERE {$whereClause}{$typeFilter} ORDER BY type, title LIMIT ? OFFSET ?";
+        $items     = $this->db->query($baseQuery, array_merge($searchParams, $typeParams, [$limit, $offset]));
+
         $response->getBody()->write(json_encode([
             'items' => $items,
             'total' => $total,
-            'page' => $page,
-            'pages' => ceil($total / $limit)
+            'page'  => $page,
+            'pages' => ceil($total / $limit),
         ]));
-        
+
         return $response->withHeader('Content-Type', 'application/json');
     }
 }

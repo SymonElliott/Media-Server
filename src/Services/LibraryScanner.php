@@ -462,8 +462,8 @@ class LibraryScanner
 
     private function probeDuration(string $path): ?int
     {
-        $ffprobe = '/opt/homebrew/bin/ffprobe';
-        if (!is_executable($ffprobe)) {
+        $ffprobe = $this->findFfprobe();
+        if (!$ffprobe) {
             return null;
         }
         $cmd = sprintf(
@@ -477,8 +477,8 @@ class LibraryScanner
 
     private function probeChapters(string $path): ?array
     {
-        $ffprobe = '/opt/homebrew/bin/ffprobe';
-        if (!is_executable($ffprobe)) {
+        $ffprobe = $this->findFfprobe();
+        if (!$ffprobe) {
             return null;
         }
         $cmd = sprintf(
@@ -498,6 +498,30 @@ class LibraryScanner
             $chapters[] = ['title' => $title, 'start' => $start];
         }
         return count($chapters) > 1 ? $chapters : null;
+    }
+
+    /** Locate the ffprobe binary, checking common install locations before PATH. */
+    private function findFfprobe(): ?string
+    {
+        static $cache;
+        if ($cache !== null) {
+            return $cache === '' ? null : $cache;
+        }
+
+        foreach ([
+            '/opt/homebrew/bin/ffprobe',   // macOS (Homebrew Apple Silicon / Intel)
+            '/usr/local/bin/ffprobe',      // macOS (Homebrew alt), Docker custom installs
+            '/usr/bin/ffprobe',            // Linux (apt/dnf package)
+        ] as $candidate) {
+            if (is_executable($candidate)) {
+                return $cache = $candidate;
+            }
+        }
+
+        // Last resort: search $PATH
+        $which = trim((string) shell_exec('which ffprobe 2>/dev/null'));
+        $cache = ($which !== '' && is_executable($which)) ? $which : '';
+        return $cache !== '' ? $cache : null;
     }
 
     private function extractMeta(SplFileInfo $file, string $type): array

@@ -29,7 +29,13 @@ class StreamService
         'epub' => 'application/epub+zip',
     ];
 
-    public function __construct(private readonly string $libraryPath) {}
+    private readonly string $resolvedLibraryPath;
+
+    public function __construct(private readonly string $libraryPath)
+    {
+        // Resolve once at construction time; every stream() call re-uses this.
+        $this->resolvedLibraryPath = realpath($libraryPath) ?: $libraryPath;
+    }
 
     public function stream(
         ServerRequestInterface $request,
@@ -38,7 +44,7 @@ class StreamService
     ): ResponseInterface {
         $fullPath = realpath($this->libraryPath . '/' . ltrim($path, '/'));
 
-        if ($fullPath === false || !str_starts_with($fullPath, realpath($this->libraryPath))) {
+        if ($fullPath === false || !str_starts_with($fullPath, $this->resolvedLibraryPath)) {
             return $response->withStatus(403);
         }
 
