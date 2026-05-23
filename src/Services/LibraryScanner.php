@@ -99,8 +99,13 @@ class LibraryScanner
                 continue;
             }
 
+            // CATCH_GET_CHILD silently skips subdirectories that cannot be opened
+            // (permission denied, bad symlink, NFS stale handle, etc.) instead of
+            // throwing and aborting the entire scan.
             $iterator = new RecursiveIteratorIterator(
-                new RecursiveDirectoryIterator($scanRoot, RecursiveDirectoryIterator::SKIP_DOTS)
+                new RecursiveDirectoryIterator($scanRoot, RecursiveDirectoryIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::LEAVES_ONLY,
+                RecursiveIteratorIterator::CATCH_GET_CHILD
             );
 
             $scannedPaths  = [];
@@ -108,50 +113,63 @@ class LibraryScanner
             $typeUpdated   = 0;
             $typeSkipped   = 0;
 
-            foreach ($iterator as $file) {
-                if (!$file->isFile()) {
-                    continue;
-                }
+            try {
+                foreach ($iterator as $file) {
+                    try {
+                        if (!$file->isFile()) {
+                            continue;
+                        }
 
-                if ($file->getFilename() === '.DS_Store') {
-                    @unlink($file->getRealPath());
-                    continue;
-                }
+                        if ($file->getFilename() === '.DS_Store') {
+                            @unlink($file->getRealPath());
+                            continue;
+                        }
 
-                $ext = strtolower($file->getExtension());
-                if (!in_array($ext, self::EXTENSIONS[$type], true)) {
-                    continue;
-                }
+                        $ext = strtolower($file->getExtension());
+                        if (!in_array($ext, self::EXTENSIONS[$type], true)) {
+                            continue;
+                        }
 
-                // Track the top-level directory (artist/author/show/movie-folder) and
-                // emit a state update + log line when we enter a new one.
-                $relPath = ltrim(substr($file->getPath(), strlen($scanRoot)), '/');
-                $topDir  = $relPath !== '' ? explode('/', $relPath)[0] : null;
-                if ($topDir !== null && $topDir !== $this->currentScanName) {
-                    $this->currentScanName = $topDir;
-                    $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
-                    $this->log('  ' . ucfirst($type) . ' › ' . $topDir);
-                }
+                        // Track the top-level directory (artist/author/show/movie-folder) and
+                        // emit a state update + log line when we enter a new one.
+                        $relPath = ltrim(substr($file->getPath(), strlen($scanRoot)), '/');
+                        $topDir  = $relPath !== '' ? explode('/', $relPath)[0] : null;
+                        if ($topDir !== null && $topDir !== $this->currentScanName) {
+                            $this->currentScanName = $topDir;
+                            $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
+                            $this->log('  ' . ucfirst($type) . ' › ' . $topDir);
+                        }
 
-                $scannedPaths[] = $file->getRealPath();
+                        $scannedPaths[] = $file->getRealPath();
 
-                try {
-                    $isNew = $this->indexFile($file, $type);
-                    if ($isNew) {
-                        $stats['added']++;
-                        $typeAdded++;
-                    } else {
-                        $stats['updated']++;
-                        $typeUpdated++;
+                        try {
+                            $isNew = $this->indexFile($file, $type);
+                            if ($isNew) {
+                                $stats['added']++;
+                                $typeAdded++;
+                            } else {
+                                $stats['updated']++;
+                                $typeUpdated++;
+                            }
+                        } catch (\Exception $e) {
+                            $this->log('  SKIP ' . $file->getFilename() . ': ' . $e->getMessage());
+                            $stats['skipped']++;
+                            $typeSkipped++;
+                        }
+
+                        if (++$this->progressWriteCounter % 20 === 0) {
+                            $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
+                        }
+                    } catch (\Throwable $e) {
+                        // Per-file error (e.g. stat() on a broken symlink) — skip and continue.
+                        $this->log('  SKIP (error): ' . $e->getMessage());
+                        $stats['skipped']++;
+                        $typeSkipped++;
                     }
-                } catch (\Exception) {
-                    $stats['skipped']++;
-                    $typeSkipped++;
                 }
-
-                if (++$this->progressWriteCounter % 20 === 0) {
-                    $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
-                }
+            } catch (\Throwable $e) {
+                // Iterator-level error (directory became unavailable mid-scan).
+                $this->log(sprintf('  ERROR traversing %s: %s', $type, $e->getMessage()));
             }
 
             // Log per-type summary

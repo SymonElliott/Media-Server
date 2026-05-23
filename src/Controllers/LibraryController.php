@@ -543,8 +543,16 @@ class LibraryController
         if (file_exists($stateFile)) {
             $state = json_decode(file_get_contents($stateFile), true) ?? [];
             if ($state['running'] ?? false) {
-                $response->getBody()->write(json_encode(['error' => 'Scan already running']));
-                return $response->withHeader('Content-Type', 'application/json')->withStatus(409);
+                // Before rejecting, verify the recorded PID is actually alive.
+                // If it's dead the state is stale (crash/kill) — auto-reset and allow restart.
+                $pid   = (int) ($state['pid'] ?? 0);
+                $alive = $pid > 0 && $this->pidIsAlive($pid);
+                if ($alive) {
+                    $response->getBody()->write(json_encode(['error' => 'Scan already running']));
+                    return $response->withHeader('Content-Type', 'application/json')->withStatus(409);
+                }
+                // Stale lock — fall through to start a fresh scan
+                $this->log->warn('scan', "Stale scan state detected (PID {$pid} is gone) — resetting");
             }
         }
 
@@ -574,7 +582,13 @@ class LibraryController
         $phpCli = $this->findPhpCli();
         $script = realpath(dirname(__DIR__, 2) . '/bin/scan.php');
 
-        $scriptArgs = array_filter([$filterType, $filterGroup], fn($v) => $v !== null);
+        if (!$script || !is_readable($script)) {
+            file_put_contents($stateFile, json_encode(['running' => false]), LOCK_EX);
+            $response->getBody()->write(json_encode(['error' => 'scan.php not found']));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+        }
+
+        $scriptArgs = array_values(array_filter([$filterType, $filterGroup], fn($v) => $v !== null));
         $cmd        = $this->buildBgCmd($phpCli, $script, $scriptArgs);
         exec($cmd);
 
@@ -596,6 +610,18 @@ class LibraryController
 
         if (file_exists($stateFile)) {
             $state = json_decode(file_get_contents($stateFile), true) ?? [];
+        }
+
+        // Auto-recover: if the state says running but the PID is gone, clear it.
+        // This handles SIGKILL, OOM kills, and crashes that skip the shutdown function.
+        if (($state['running'] ?? false) && isset($state['pid'])) {
+            $pid = (int) $state['pid'];
+            if ($pid > 0 && !$this->pidIsAlive($pid)) {
+                $state['running']     = false;
+                $state['finished_at'] = $state['finished_at'] ?? date('c');
+                $state['error']       = 'Scan process terminated unexpectedly';
+                file_put_contents($stateFile, json_encode($state), LOCK_EX);
+            }
         }
 
         $rows   = $this->db->query('SELECT type, COUNT(*) as count FROM media GROUP BY type');
@@ -1521,6 +1547,24 @@ class LibraryController
         }
         usort($entries, fn($a, $b) => ($b['is_dir'] <=> $a['is_dir']) ?: strnatcasecmp($a['name'], $b['name']));
         return $entries;
+    }
+
+    // ── Process / background helpers ─────────────────────────────────────────
+
+    /**
+     * Return true if a process with the given PID is still running.
+     * Uses posix_kill(pid, 0) on Linux (signal 0 = existence check, no signal sent).
+     * Falls back to /proc/<pid> on systems without the POSIX extension.
+     */
+    private function pidIsAlive(int $pid): bool
+    {
+        if ($pid <= 0) {
+            return false;
+        }
+        if (function_exists('posix_kill')) {
+            return @posix_kill($pid, 0);
+        }
+        return file_exists("/proc/{$pid}");
     }
 
     // ── Background-process helpers ────────────────────────────────────────────
