@@ -17,6 +17,14 @@ declare(strict_types=1);
  *   inline # comments  stripped outside quotes
  */
 (static function (): void {
+    // In Docker the project directory is bind-mounted, so .env is readable inside
+    // the container.  But Docker injects environment variables directly — loading
+    // .env on top would override them with dev-machine values (wrong library path,
+    // APP_DEBUG=true in prod, etc.).  Skip .env entirely when running in Docker.
+    if (file_exists('/.dockerenv')) {
+        return;
+    }
+
     $file = dirname(__DIR__, 2) . '/.env';
     if (!is_file($file)) {
         return;
