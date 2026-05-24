@@ -251,7 +251,21 @@ class Connection
             );
         }
 
-        // if ($version < 2) { $this->migrate_v2(); ... }
+        if ($version < 2) {
+            // Force v_media to be rebuilt with the current definition.
+            //
+            // DBs that already had __schema_version = 1 set before migrate_v1
+            // Step 4 was added never had the DROP VIEW executed, so their v_media
+            // may still reference the long-deleted media_legacy table.
+            // recreateView() uses CREATE VIEW IF NOT EXISTS (no-op when the view
+            // exists), so the broken view would persist forever without this drop.
+            $this->pdo->exec('DROP VIEW IF EXISTS v_media');
+            $this->pdo->exec(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('__schema_version', '2')"
+            );
+        }
+
+        // if ($version < 3) { $this->migrate_v3(); ... }
     }
 
     /**
