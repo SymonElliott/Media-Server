@@ -49,6 +49,7 @@
                     <a href="/people/{{ person.slug }}" class="btn-refresh" style="text-decoration:none;">View Artist</a>
                 {% endif %}
                 <form method="post" action="/metadata/refresh-album" style="display:inline;">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                     <input type="hidden" name="album" value="{{ album|e('html_attr') }}">
                     <input type="hidden" name="artist" value="{{ artist|e('html_attr') }}">
                     <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>

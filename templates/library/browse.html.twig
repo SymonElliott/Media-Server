@@ -41,6 +41,7 @@
         <button class="btn-view-toggle" id="btn-grid" onclick="setView('grid')" title="Grid view">⊞</button>
         <button class="btn-view-toggle" id="btn-list" onclick="setView('list')" title="List view">☰</button>
         <form method="post" action="/metadata/refresh-type/{{ type }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <button type="submit" class="btn-refresh">↻ Refresh Metadata</button>
         </form>
     </div>
