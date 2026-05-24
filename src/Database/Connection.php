@@ -265,14 +265,18 @@ class Connection
         // existed, leaving the view permanently pointing at the now-deleted table.
         // The 1.2.3 fix drops v_media inside the migration transaction (before RENAME),
         // but if the migration already completed on an earlier boot the guard never fires.
-        // We detect and repair the stale view here, unconditionally on every boot.
-        $staleViewSql = $this->pdo->query(
-            "SELECT sql FROM sqlite_schema WHERE type='view' AND name='v_media'"
-        )->fetchColumn();
-        if (is_string($staleViewSql) && str_contains($staleViewSql, 'media_legacy')) {
-            // The view is broken; drop it so the CREATE VIEW IF NOT EXISTS below
-            // recreates it with the correct definition. The broken view was already
-            // making every query fail, so this DROP+CREATE is a strict improvement.
+        //
+        // We probe the view with a cheap test query. If it throws (broken reference),
+        // we drop it so the CREATE VIEW IF NOT EXISTS below recreates it correctly.
+        // This is safer than reading sqlite_schema/sqlite_master because:
+        //  - sqlite_schema was only aliased in SQLite 3.33.0; older images only have
+        //    sqlite_master, making the lookup silently return nothing on older builds.
+        //  - A query probe catches any kind of view corruption, not just media_legacy.
+        //  - Race-window risk is the same as the current broken state (view is already
+        //    failing for all callers), so DROP+CREATE is a strict improvement.
+        try {
+            $this->pdo->query('SELECT 1 FROM v_media LIMIT 0');
+        } catch (\PDOException) {
             $this->pdo->exec('DROP VIEW IF EXISTS v_media');
         }
 
