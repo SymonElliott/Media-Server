@@ -165,6 +165,7 @@
     <h1>Settings</h1>
 
     <form id="settings-form" method="POST" action="/settings">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
         {# ── Library ──────────────────────────────────────────────────────── #}
         <div class="settings-section">

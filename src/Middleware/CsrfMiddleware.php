@@ -42,13 +42,8 @@ class CsrfMiddleware
             }
         }
 
-        // Ensure a session token exists for use in form templates.
-        if (!isset($_SESSION['csrf_token'])) {
-            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-        }
-
-        $request = $request->withAttribute('csrf_token', $_SESSION['csrf_token']);
-
+        // Token is generated and stored in $_SESSION['csrf_token'] by AuthMiddleware,
+        // which runs before this middleware and has access to both the session and Twig.
         return $handler->handle($request);
     }
 }

@@ -28,6 +28,15 @@ class AuthMiddleware implements MiddlewareInterface
             session_start();
         }
 
+        // Generate the CSRF token once per session and expose it as a Twig global
+        // so {{ csrf_token }} works in every template without any per-controller wiring.
+        // This must happen here (outermost middleware, after session_start) so the token
+        // is available when CsrfMiddleware validates incoming POST requests.
+        if (!isset($_SESSION['csrf_token'])) {
+            $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+        }
+        $this->twig->addGlobal('csrf_token', $_SESSION['csrf_token']);
+
         $path     = $request->getUri()->getPath();
         $isPublic = in_array($path, self::PUBLIC_PATHS, true);
 

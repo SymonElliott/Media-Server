@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>{% block title %}MediaServer{% endblock %}</title>
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -987,6 +988,7 @@
                 <div class="nav-profile-menu" id="nav-profile-menu">
                     <div class="nav-profile-name">{{ authUser.username }}</div>
                     <form method="POST" action="/logout" style="margin:0">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                         <button class="nav-profile-signout" type="submit">Sign out</button>
                     </form>
                 </div>
@@ -1180,6 +1182,13 @@
     </div>
 
     <script>
+        // ── CSRF helper ───────────────────────────────────────────────────────
+        // Returns the CSRF token for inclusion in FormData or custom headers.
+        // The token is written into <meta name="csrf-token"> by the server.
+        function getCsrfToken() {
+            return document.querySelector('meta[name="csrf-token"]')?.content ?? '';
+        }
+
         let scanPollTimer   = null;
         let wasScanning     = false;
         let scanTriggeredAt = null;   // ISO string set when user clicks Scan
@@ -1638,6 +1647,7 @@
             });
 
             const form = new FormData();
+            form.append('csrf_token', getCsrfToken());
             form.append('category', category);
             Array.from(files).forEach(f => form.append('files[]', f));
 
