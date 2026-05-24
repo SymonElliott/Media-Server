@@ -259,16 +259,33 @@ class Connection
             }
         }
 
+        // ── Repair a view broken by SQLite 3.26+ rename-rewriting ───────────
+        // SQLite 3.26.0+ auto-rewrites view SQL when a referenced table is renamed.
+        // Boots before 1.2.3 could rename 'media' → 'media_legacy' while v_media
+        // existed, leaving the view permanently pointing at the now-deleted table.
+        // The 1.2.3 fix drops v_media inside the migration transaction (before RENAME),
+        // but if the migration already completed on an earlier boot the guard never fires.
+        // We detect and repair the stale view here, unconditionally on every boot.
+        $staleViewSql = $this->pdo->query(
+            "SELECT sql FROM sqlite_schema WHERE type='view' AND name='v_media'"
+        )->fetchColumn();
+        if (is_string($staleViewSql) && str_contains($staleViewSql, 'media_legacy')) {
+            // The view is broken; drop it so the CREATE VIEW IF NOT EXISTS below
+            // recreates it with the correct definition. The broken view was already
+            // making every query fail, so this DROP+CREATE is a strict improvement.
+            $this->pdo->exec('DROP VIEW IF EXISTS v_media');
+        }
+
         // ── v_media view ──────────────────────────────────────────────────────
-        // Use IF NOT EXISTS — never drop an existing view.
+        // Use IF NOT EXISTS — never drop a healthy view.
         //
         // Dropping on every boot creates a race window: a long-running scan.php
         // query against v_media can land between the DROP and the subsequent
         // CREATE of a concurrent HTTP request, producing "no such table: v_media".
         //
-        // The definition is stable within a release. If the definition ever needs
-        // to change, add a versioned migration below (check sqlite_schema.sql and
-        // drop+recreate explicitly in a one-time gate, like migrateToExtensionTables).
+        // Definition changes should use a versioned migration gate (like
+        // migrateToExtensionTables) — or add a targeted repair block like the one
+        // above.
         $this->pdo->exec(<<<'SQL'
             CREATE VIEW IF NOT EXISTS v_media AS
             SELECT
