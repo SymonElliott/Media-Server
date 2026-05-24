@@ -396,19 +396,34 @@ class Connection
 
     // ── View recreation ───────────────────────────────────────────────────────
     //
-    // v_media is created once with IF NOT EXISTS — it is NEVER dropped here.
+    // On every boot we read the stored view SQL from sqlite_master and check
+    // whether it is broken (references a table that no longer exists, e.g.
+    // media_legacy after an ALTER TABLE RENAME that SQLite 3.26+ rewrote into
+    // the stored view definition).  If broken, we drop the view so that
+    // CREATE VIEW IF NOT EXISTS recreates it from the correct PHP definition.
     //
-    // The previous DROP+CREATE pattern had a race window: between the DROP and
-    // the CREATE, any concurrent FPM request that opened a new Connection would
-    // also run DROP+CREATE, and any scan.php query landing in that gap would see
-    // "no such table: v_media".
-    //
-    // The only place v_media is ever dropped is inside versioned migrations
-    // (migrate_v1 Step 4), which runs exactly once.  On every subsequent boot,
-    // IF NOT EXISTS is a no-op and the view is never removed.
+    // We ONLY drop when broken, so the race window (DROP → CREATE) exists only
+    // when the view was already unusable.  Normal boots that find a healthy view
+    // hit IF NOT EXISTS and do nothing.
 
     private function recreateView(): void
     {
+        // Detect a broken view: sqlite_master stores the view SQL exactly as
+        // SQLite rewrote it, so a reference to media_legacy means the view was
+        // corrupted by a past ALTER TABLE RENAME and must be rebuilt.
+        try {
+            $row = $this->pdo
+                ->query("SELECT sql FROM sqlite_master WHERE type='view' AND name='v_media'")
+                ->fetch(PDO::FETCH_ASSOC);
+
+            if ($row !== false && str_contains((string) ($row['sql'] ?? ''), 'media_legacy')) {
+                $this->pdo->exec('DROP VIEW IF EXISTS v_media');
+            }
+        } catch (\Throwable) {
+            // sqlite_master is always readable; if something goes wrong, fall
+            // through — CREATE IF NOT EXISTS will handle what it can.
+        }
+
         $this->pdo->exec(<<<'SQL'
             CREATE VIEW IF NOT EXISTS v_media AS
             SELECT
