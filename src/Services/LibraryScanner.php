@@ -168,8 +168,15 @@ class LibraryScanner
                                 $stats['updated']++;
                                 $typeUpdated++;
                             }
-                        } catch (\Exception $e) {
-                            $this->log('  SKIP ' . $file->getFilename() . ': ' . $e->getMessage());
+                        } catch (\Throwable $e) {
+                            // Use get_class() so TypeError, PDOException, etc. are distinguishable
+                            // from generic RuntimeException in the scan log.
+                            $this->log(sprintf(
+                                '  SKIP %s: [%s] %s',
+                                $file->getFilename(),
+                                basename(str_replace('\\', '/', get_class($e))),
+                                $e->getMessage()
+                            ));
                             $stats['skipped']++;
                             $typeSkipped++;
                         }

@@ -15,11 +15,13 @@ $coversDir = $root . '/public/covers';
 $db       = new App\Database\Connection($root . '/storage/db/media.sqlite');
 $settings = new App\Services\Settings($db);
 $http     = new GuzzleHttp\Client(['timeout' => 15, 'http_errors' => false]);
+
 $metadata = new App\Services\Metadata\MetadataService(
     $db,
     new App\Services\Metadata\TmdbProvider($http, $settings->getEnv('TMDB_API_KEY')),
     new App\Services\Metadata\MusicBrainzProvider($http, 'MediaServer/1.0'),
     new App\Services\Metadata\OpenLibraryProvider($http),
+    new App\Services\Metadata\AudnexusProvider($http),
     $http,
     $coversDir
 );

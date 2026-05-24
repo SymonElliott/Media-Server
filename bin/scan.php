@@ -172,6 +172,19 @@ try {
     $appLogger->info('scan', $phase1Summary);
 
     // Count items that still need metadata enrichment for phase-2 progress
+    // Log extension table row counts so we can verify Phase 1 actually populated them.
+    $extCounts = [];
+    foreach (['media_movies', 'media_shows', 'media_music', 'media_books'] as $tbl) {
+        $extCounts[$tbl] = (int) ($db->first("SELECT COUNT(*) as n FROM {$tbl}")['n'] ?? 0);
+    }
+    $scanLogger->info(sprintf(
+        'Extension tables after Phase 1 — movies:%d  shows:%d  music:%d  books:%d',
+        $extCounts['media_movies'],
+        $extCounts['media_shows'],
+        $extCounts['media_music'],
+        $extCounts['media_books']
+    ));
+
     $metaQuery  = 'SELECT COUNT(*) as n FROM media WHERE metadata_fetched_at IS NULL';
     $metaParams = [];
     if ($filterType) {
@@ -179,8 +192,16 @@ try {
         $metaParams[]  = $filterType;
     }
     if ($filterGroup) {
-        $groupCol     = ($filterType === 'shows') ? 'show_name' : 'author';
-        $metaQuery   .= " AND $groupCol = ?";
+        // These columns live in the extension tables, not the base media table.
+        // Route through a subquery so the WHERE clause is valid.
+        if ($filterType === 'shows') {
+            $metaQuery .= ' AND id IN (SELECT media_id FROM media_shows WHERE show_name = ?)';
+        } elseif ($filterType === 'music') {
+            $metaQuery .= ' AND id IN (SELECT media_id FROM media_music WHERE artist = ?)';
+        } else {
+            // books / audiobooks — filter by author
+            $metaQuery .= ' AND id IN (SELECT media_id FROM media_books WHERE author = ?)';
+        }
         $metaParams[] = $filterGroup;
     }
     $metaTotal = (int) ($db->first($metaQuery, $metaParams)['n'] ?? 0);
