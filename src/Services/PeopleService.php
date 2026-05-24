@@ -36,7 +36,7 @@ class PeopleService
     public function syncFromMedia(): void
     {
         $rows = $this->db->query(
-            'SELECT DISTINCT author, type FROM media WHERE author IS NOT NULL AND author != ""'
+            'SELECT DISTINCT author, type FROM v_media WHERE author IS NOT NULL AND author != ""'
         );
         foreach ($rows as $row) {
             $role = $row['type'] === 'music' ? 'artist' : 'author';
@@ -47,7 +47,7 @@ class PeopleService
             'SELECT metadata FROM media
              WHERE type IN ("movies", "shows")
                AND metadata IS NOT NULL AND metadata NOT IN ("{}", "")'
-        );
+        ); // metadata is a base-table column — reading FROM media directly is correct here
         foreach ($mediaRows as $row) {
             $meta = json_decode($row['metadata'], true);
             foreach (array_merge($meta['cast'] ?? [], $meta['director'] ?? []) as $name) {

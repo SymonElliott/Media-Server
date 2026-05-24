@@ -67,7 +67,7 @@ class MetadataService
     /** Re-enrich a single item using a specific externally-matched ID. */
     public function applyExternalMatch(int $mediaId, string $source, string $externalId): void
     {
-        $item = $this->db->first('SELECT * FROM media WHERE id = ?', [$mediaId]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE id = ?', [$mediaId]);
         if (!$item) return;
 
         $meta = match ($source) {
@@ -143,7 +143,7 @@ class MetadataService
     /** Enrich a single item by ID. Used by the manual refresh button. */
     public function enrichOne(int $id): void
     {
-        $item = $this->db->first('SELECT * FROM media WHERE id = ?', [$id]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE id = ?', [$id]);
         if (!$item) return;
 
         // Clear fetched timestamp so enrichment runs even if previously attempted
@@ -176,7 +176,7 @@ class MetadataService
     private function enrichMovies(?callable $onProgress): void
     {
         $items = $this->db->query(
-            'SELECT * FROM media WHERE type = "movies" AND metadata_fetched_at IS NULL'
+            'SELECT * FROM v_media WHERE type = "movies" AND metadata_fetched_at IS NULL'
         );
         foreach ($items as $item) {
             if ($onProgress) $onProgress('movies', $item['id'], $item['title'] ?? $item['filename'] ?? '');
@@ -196,10 +196,10 @@ class MetadataService
 
         // Pass 1: shows with no metadata at all
         $newShows = $this->db->query(
-            'SELECT DISTINCT show_name FROM media
+            'SELECT DISTINCT show_name FROM v_media
              WHERE type = "shows" AND show_name IS NOT NULL
                AND show_name NOT IN (
-                   SELECT DISTINCT show_name FROM media
+                   SELECT DISTINCT show_name FROM v_media
                    WHERE type = "shows" AND metadata_fetched_at IS NOT NULL
                )' . $groupFilter,
             $groupParams
@@ -219,13 +219,13 @@ class MetadataService
         // either season thumbnails haven't been fetched yet, or new episodes were
         // added since the last enrichment (metadata_fetched_at IS NULL on some rows).
         $needsSeasons = $this->db->query(
-            'SELECT DISTINCT show_name, MAX(external_id) as tmdb_id FROM media
+            'SELECT DISTINCT show_name, MAX(external_id) as tmdb_id FROM v_media
              WHERE type = "shows" AND external_source = "tmdb" AND external_id IS NOT NULL
                AND (
                    metadata IS NULL
                    OR metadata NOT LIKE "%season_posters%"
                    OR show_name IN (
-                       SELECT DISTINCT show_name FROM media
+                       SELECT DISTINCT show_name FROM v_media
                        WHERE type = "shows" AND metadata_fetched_at IS NULL
                    )
                )' . $groupFilter . '
@@ -240,7 +240,8 @@ class MetadataService
                 // Stamp any newly-added episodes so they don't trigger this pass on the next scan
                 $this->db->execute(
                     'UPDATE media SET metadata_fetched_at = CURRENT_TIMESTAMP
-                     WHERE type = "shows" AND show_name = ? AND metadata_fetched_at IS NULL',
+                     WHERE id IN (SELECT media_id FROM media_shows WHERE show_name = ?)
+                       AND metadata_fetched_at IS NULL',
                     [$row['show_name']]
                 );
             } catch (\Throwable $e) {
@@ -255,7 +256,7 @@ class MetadataService
         $groupParams = $filterGroup ? [$filterGroup] : [];
 
         $albums = $this->db->query(
-            'SELECT DISTINCT author, series FROM media
+            'SELECT DISTINCT author, series FROM v_media
              WHERE type = "music" AND author IS NOT NULL AND metadata_fetched_at IS NULL' . $groupFilter,
             $groupParams
         );
@@ -282,11 +283,11 @@ class MetadataService
 
         $items = $type
             ? $this->db->query(
-                'SELECT * FROM media WHERE type = ? AND metadata_fetched_at IS NULL' . $groupFilter,
+                'SELECT * FROM v_media WHERE type = ? AND metadata_fetched_at IS NULL' . $groupFilter,
                 array_merge([$type], $groupParams)
               )
             : $this->db->query(
-                'SELECT * FROM media WHERE type = "books" AND metadata_fetched_at IS NULL' . $groupFilter,
+                'SELECT * FROM v_media WHERE type = "books" AND metadata_fetched_at IS NULL' . $groupFilter,
                 $groupParams
               );
         foreach ($items as $item) {
@@ -308,7 +309,7 @@ class MetadataService
         // Group by book so we do one lookup per book, not one per chapter file.
         // Include a sample path so we can extract the clean directory-based title.
         $books = $this->db->query(
-            'SELECT book_name, author, series, MIN(path) as sample_path FROM media
+            'SELECT book_name, author, series, MIN(path) as sample_path FROM v_media
              WHERE type = "audiobooks" AND book_name IS NOT NULL AND metadata_fetched_at IS NULL' . $groupFilter . '
              GROUP BY book_name, author',
             $groupParams
@@ -329,7 +330,7 @@ class MetadataService
 
         // After all books are enriched, enrich any series that have no series_meta yet.
         $seriesList = $this->db->query(
-            'SELECT DISTINCT series, author FROM media
+            'SELECT DISTINCT series, author FROM v_media
              WHERE type = "audiobooks" AND series IS NOT NULL AND book_name IS NOT NULL' . $groupFilter,
             $groupParams
         );
@@ -428,7 +429,7 @@ class MetadataService
 
         if (($meta['external_id'] ?? null) && ($meta['external_source'] ?? null) === 'tmdb') {
             $seasonCount = (int) ($this->db->first(
-                'SELECT COUNT(DISTINCT season) as n FROM media WHERE type = "shows" AND show_name = ?',
+                'SELECT COUNT(DISTINCT season) as n FROM v_media WHERE type = "shows" AND show_name = ?',
                 [$showName]
             )['n'] ?? 0);
             $this->log("[shows] \"{$showName}\" fetching {$seasonCount} season(s)...");
@@ -450,7 +451,7 @@ class MetadataService
     private function enrichShowSeasons(string $showName, int $tmdbId, bool $downloadStills = false): void
     {
         $seasons = $this->db->query(
-            'SELECT DISTINCT season FROM media
+            'SELECT DISTINCT season FROM v_media
              WHERE type = "shows" AND show_name = ? AND season IS NOT NULL
              ORDER BY season',
             [$showName]
@@ -476,19 +477,27 @@ class MetadataService
                     if ($downloadStills && $ep['still_url']) {
                         $still = $this->downloadCover($ep['still_url'], "ep_{$tmdbId}_{$n}_{$ep['number']}");
                     }
+                    // Episode title lives on media base; episode still lives in media_shows.
                     $this->db->execute(
-                        'UPDATE media SET
-                            title = COALESCE(:title, title),
-                            still = COALESCE(:still, still)
-                         WHERE type = "shows" AND show_name = :show AND season = :season AND episode = :episode',
+                        'UPDATE media SET title = COALESCE(:title, title)
+                         WHERE id IN (
+                             SELECT media_id FROM media_shows
+                             WHERE show_name = :show AND season = :season AND episode = :episode
+                         )',
                         [
                             'title'   => $ep['name'] ?? null,
-                            'still'   => $still,
                             'show'    => $showName,
                             'season'  => $n,
                             'episode' => $ep['number'],
                         ]
                     );
+                    if ($still !== null) {
+                        $this->db->execute(
+                            'UPDATE media_shows SET still = COALESCE(:still, still)
+                             WHERE show_name = :show AND season = :season AND episode = :episode',
+                            ['still' => $still, 'show' => $showName, 'season' => $n, 'episode' => $ep['number']]
+                        );
+                    }
                 }
             }
 
@@ -546,7 +555,7 @@ class MetadataService
         }
 
         $rows = $this->db->query(
-            'SELECT id, title, filename FROM media WHERE type = "music" AND author = ? AND series = ?',
+            'SELECT id, title, filename FROM v_media WHERE type = "music" AND author = ? AND series = ?',
             [$artist, $album]
         );
 
@@ -559,7 +568,7 @@ class MetadataService
 
             if (isset($trackMap[$normalised])) {
                 $this->db->execute(
-                    'UPDATE media SET series_order = ? WHERE id = ?',
+                    'UPDATE media_music SET track_order = ? WHERE media_id = ?',
                     [$trackMap[$normalised], $row['id']]
                 );
                 $matched++;
@@ -623,7 +632,6 @@ class MetadataService
                 external_id         = ' . $w('external_id', ':external_id') . ',
                 external_source     = ' . $w('external_source', ':external_source') . ',
                 year                = ' . $w('year', ':year') . ',
-                series_order        = COALESCE(:series_order, series_order),
                 metadata            = :metadata,
                 metadata_fetched_at = CURRENT_TIMESTAMP
              WHERE id = :id',
@@ -634,11 +642,18 @@ class MetadataService
                 'external_id'     => $meta['external_id'] ?? null,
                 'external_source' => $meta['external_source'] ?? null,
                 'year'            => $meta['year'] ?? null,
-                'series_order'    => $meta['series_order'] ?? null,
                 'metadata'        => json_encode($meta['metadata'] ?? []),
                 'id'              => $id,
             ]
         );
+
+        // series_order belongs in media_books (books/audiobooks only).
+        if (($meta['series_order'] ?? null) !== null) {
+            $this->db->execute(
+                'UPDATE media_books SET series_order = COALESCE(?, series_order) WHERE media_id = ?',
+                [$meta['series_order'], $id]
+            );
+        }
     }
 
     private function applyToShow(string $showName, ?array $meta, bool $overwrite = false): void
@@ -657,7 +672,7 @@ class MetadataService
                 year                = ' . $w('year', ':year') . ',
                 metadata            = :metadata,
                 metadata_fetched_at = CURRENT_TIMESTAMP
-             WHERE type = "shows" AND show_name = :show_name',
+             WHERE id IN (SELECT media_id FROM media_shows WHERE show_name = :show_name)',
             [
                 'description'     => $meta['description'] ?? null,
                 'poster'          => $poster,
@@ -676,6 +691,7 @@ class MetadataService
         $w = fn(string $col, string $param) => $overwrite ? $param : "COALESCE($param, $col)";
 
         // Shared metadata applies to every file in the book (description, poster, etc.)
+        // book_name is in media_books, so route the WHERE through the extension table.
         $this->db->execute(
             'UPDATE media SET
                 description         = ' . $w('description', ':description') . ',
@@ -683,35 +699,42 @@ class MetadataService
                 external_id         = ' . $w('external_id', ':external_id') . ',
                 external_source     = ' . $w('external_source', ':external_source') . ',
                 year                = ' . $w('year', ':year') . ',
-                series_order        = COALESCE(:series_order, series_order),
                 metadata            = :metadata,
                 metadata_fetched_at = CURRENT_TIMESTAMP
-             WHERE type = "audiobooks" AND book_name = :book_name',
+             WHERE id IN (SELECT media_id FROM media_books WHERE book_name = :book_name)',
             [
                 'description'     => $meta['description'] ?? null,
                 'poster'          => $poster,
                 'external_id'     => $meta['external_id'] ?? null,
                 'external_source' => $meta['external_source'] ?? null,
                 'year'            => $meta['year'] ?? null,
-                'series_order'    => $meta['series_order'] ?? null,
                 'metadata'        => json_encode($meta['metadata'] ?? []),
                 'book_name'       => $bookName,
             ]
         );
+
+        // series_order lives in media_books.
+        if ($meta['series_order'] ?? null) {
+            $this->db->execute(
+                'UPDATE media_books SET series_order = COALESCE(:series_order, series_order)
+                 WHERE book_name = :book_name',
+                ['series_order' => $meta['series_order'], 'book_name' => $bookName]
+            );
+        }
 
         // Title only makes sense at the whole-book level, not for individual chapters.
         // Only overwrite it when there is exactly one file for this book_name (single-file
         // audiobook like an M4B), so chapter file titles (track names / "Chapter N") are
         // preserved.
         $fileCount = (int) ($this->db->first(
-            'SELECT COUNT(*) as n FROM media WHERE type = "audiobooks" AND book_name = ?',
+            'SELECT COUNT(*) as n FROM v_media WHERE type = "audiobooks" AND book_name = ?',
             [$bookName]
         )['n'] ?? 0);
 
         if ($overwrite || $fileCount <= 1) {
             $this->db->execute(
                 'UPDATE media SET title = ' . $w('title', ':title') . '
-                 WHERE type = "audiobooks" AND book_name = :book_name',
+                 WHERE id IN (SELECT media_id FROM media_books WHERE book_name = :book_name)',
                 ['title' => $meta['title'] ?? null, 'book_name' => $bookName]
             );
         }
@@ -732,7 +755,10 @@ class MetadataService
                 year                = ' . $w('year', ':year') . ',
                 metadata            = :metadata,
                 metadata_fetched_at = CURRENT_TIMESTAMP
-             WHERE type = "music" AND author = :artist AND (series = :album OR (:album IS NULL AND series IS NULL))',
+             WHERE id IN (
+                 SELECT media_id FROM media_music
+                 WHERE artist = :artist AND (album = :album OR (:album IS NULL AND album IS NULL))
+             )',
             [
                 'description'     => $meta['description'] ?? null,
                 'poster'          => $poster,
@@ -800,7 +826,7 @@ class MetadataService
         $authorAsin  = null;
         $authorImage = null;
         $bookRow     = $this->db->first(
-            "SELECT metadata FROM media WHERE type = 'audiobooks' AND series = ? AND external_source = 'audnexus' LIMIT 1",
+            "SELECT metadata FROM v_media WHERE type = 'audiobooks' AND series = ? AND external_source = 'audnexus' LIMIT 1",
             [$series]
         );
         if ($bookRow) {

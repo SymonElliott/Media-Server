@@ -19,14 +19,14 @@ class RenameService
     public function renameItem(int $id): void
     {
         if (!$this->settings->getBool('auto_rename')) return;
-        $item = $this->db->first('SELECT * FROM media WHERE id = ?', [$id]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE id = ?', [$id]);
         if ($item) $this->doRename($item);
     }
 
     public function renameShowEpisodes(string $showName): void
     {
         if (!$this->settings->getBool('auto_rename')) return;
-        foreach ($this->db->query('SELECT * FROM media WHERE type = "shows" AND show_name = ?', [$showName]) as $item) {
+        foreach ($this->db->query('SELECT * FROM v_media WHERE type = "shows" AND show_name = ?', [$showName]) as $item) {
             $this->doRename($item);
         }
     }
@@ -34,7 +34,7 @@ class RenameService
     public function renameBookFiles(string $bookName): void
     {
         if (!$this->settings->getBool('auto_rename')) return;
-        foreach ($this->db->query('SELECT * FROM media WHERE type = "audiobooks" AND book_name = ?', [$bookName]) as $item) {
+        foreach ($this->db->query('SELECT * FROM v_media WHERE type = "audiobooks" AND book_name = ?', [$bookName]) as $item) {
             $this->doRename($item);
         }
     }
@@ -42,7 +42,7 @@ class RenameService
     public function renameAlbumTracks(string $artist, string $album): void
     {
         if (!$this->settings->getBool('auto_rename')) return;
-        foreach ($this->db->query('SELECT * FROM media WHERE type = "music" AND author = ? AND series = ?', [$artist, $album]) as $item) {
+        foreach ($this->db->query('SELECT * FROM v_media WHERE type = "music" AND author = ? AND series = ?', [$artist, $album]) as $item) {
             $this->doRename($item);
         }
     }

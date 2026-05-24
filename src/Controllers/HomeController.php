@@ -60,7 +60,7 @@ class HomeController
                     m.id, m.type, m.title, m.filename, m.poster, m.path,
                     m.show_name, m.season, m.episode, m.author, m.series
              FROM progress p
-             JOIN media m ON p.media_id = m.id
+             JOIN v_media m ON p.media_id = m.id
              WHERE p.user_id = ? AND p.completed = 0 AND (p.position > 0 OR p.position_cfi IS NOT NULL)
              ORDER BY p.updated_at DESC
              LIMIT 24',

@@ -23,7 +23,7 @@ class MediaController
     public function get(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];
-        $item = $this->db->first('SELECT * FROM media WHERE id = ?', [$id]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE id = ?', [$id]);
         if (!$item) return $response->withStatus(404);
 
         $response->getBody()->write(json_encode($item));
@@ -36,32 +36,93 @@ class MediaController
         $item = $this->db->first('SELECT id, title, type FROM media WHERE id = ?', [$id]);
         if (!$item) return $response->withStatus(404);
 
-        $body    = json_decode((string) $request->getBody(), true) ?? [];
-        $allowed = ['title', 'year', 'description', 'author', 'series', 'season', 'episode', 'poster', 'series_order'];
+        $body = json_decode((string) $request->getBody(), true) ?? [];
+        $type = $item['type'];
 
-        $sets = $params = [];
-        foreach ($allowed as $field) {
+        // ── Base-table fields (common to all types) ─────────────────────────
+        $baseFields = ['title', 'year', 'description', 'poster'];
+        $baseSets = $baseParams = [];
+        foreach ($baseFields as $field) {
             if (array_key_exists($field, $body)) {
-                $sets[]   = "$field = ?";
-                $params[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+                $baseSets[]   = "$field = ?";
+                $baseParams[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
             }
         }
+        if ($baseSets) {
+            $baseParams[] = $id;
+            $this->db->execute('UPDATE media SET ' . implode(', ', $baseSets) . ' WHERE id = ?', $baseParams);
+        }
 
-        if ($sets) {
-            $params[] = $id;
-            $this->db->execute('UPDATE media SET ' . implode(', ', $sets) . ' WHERE id = ?', $params);
+        // ── Extension-table fields routed by type ────────────────────────────
+        match ($type) {
+            'shows'                   => $this->updateShowsExt($id, $body),
+            'music'                   => $this->updateMusicExt($id, $body),
+            'books', 'audiobooks'     => $this->updateBooksExt($id, $body),
+            default                   => null,
+        };
+
+        $allAllowed = ['title', 'year', 'description', 'poster', 'author', 'series',
+                       'season', 'episode', 'series_order', 'book_name', 'book_version'];
+        if ($baseSets || array_intersect_key($body, array_flip($allAllowed))) {
             $this->renamer?->renameItem($id);
             $this->log?->info('media', sprintf(
                 'Updated "%s" (id=%d, type=%s): %s',
                 $item['title'] ?? 'unknown',
                 $id,
-                $item['type'] ?? '?',
-                implode(', ', array_keys(array_intersect_key($body, array_flip($allowed))))
+                $type,
+                implode(', ', array_keys(array_intersect_key($body, array_flip($allAllowed))))
             ));
         }
 
         $response->getBody()->write(json_encode(['updated' => true]));
         return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    private function updateShowsExt(int $id, array $body): void
+    {
+        $sets = $params = [];
+        foreach (['season', 'episode'] as $field) {
+            if (array_key_exists($field, $body)) {
+                $sets[]   = "$field = ?";
+                $params[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+            }
+        }
+        if ($sets) {
+            $params[] = $id;
+            $this->db->execute('UPDATE media_shows SET ' . implode(', ', $sets) . ' WHERE media_id = ?', $params);
+        }
+    }
+
+    private function updateMusicExt(int $id, array $body): void
+    {
+        // Map the generic body keys to the music extension table's column names
+        $map = ['author' => 'artist', 'series' => 'album', 'series_order' => 'track_order'];
+        $sets = $params = [];
+        foreach ($map as $bodyKey => $col) {
+            if (array_key_exists($bodyKey, $body)) {
+                $sets[]   = "$col = ?";
+                $params[] = ($body[$bodyKey] !== '' && $body[$bodyKey] !== null) ? $body[$bodyKey] : null;
+            }
+        }
+        if ($sets) {
+            $params[] = $id;
+            $this->db->execute('UPDATE media_music SET ' . implode(', ', $sets) . ' WHERE media_id = ?', $params);
+        }
+    }
+
+    private function updateBooksExt(int $id, array $body): void
+    {
+        $sets = $params = [];
+        foreach (['author', 'series', 'series_order', 'book_name', 'book_version'] as $field) {
+            if (array_key_exists($field, $body)) {
+                $sets[]   = "$field = ?";
+                $params[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+            }
+        }
+        if ($sets) {
+            $params[] = $id;
+            $this->db->execute('UPDATE media_books SET ' . implode(', ', $sets) . ' WHERE media_id = ?', $params);
+        }
     }
 
     public function delete(Request $request, Response $response, array $args): Response
@@ -120,19 +181,52 @@ class MediaController
             return $response->withHeader('Content-Type', 'application/json')->withStatus(400);
         }
 
-        // Series deletes are scoped to the specific type(s) to avoid cross-type collisions
+        // Series deletes are scoped to the specific type(s) to avoid cross-type collisions.
+        // All WHERE clauses use extension-table subqueries because type-specific columns
+        // are no longer on the base media table.
         if ($col === 'series' && $type === 'music') {
-            $items = $this->db->query("SELECT path FROM media WHERE series = ? AND type = 'music'", [$name]);
+            $items = $this->db->query("SELECT path FROM v_media WHERE series = ? AND type = 'music'", [$name]);
             foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
-            $this->db->execute("DELETE FROM media WHERE series = ? AND type = 'music'", [$name]);
+            $this->db->execute(
+                "DELETE FROM media WHERE id IN (SELECT media_id FROM media_music WHERE album = ?)",
+                [$name]
+            );
         } elseif ($col === 'series' && in_array($type, ['books', 'audiobooks'], true)) {
-            $items = $this->db->query("SELECT path FROM media WHERE series = ? AND type IN ('books','audiobooks')", [$name]);
+            $items = $this->db->query("SELECT path FROM v_media WHERE series = ? AND type IN ('books','audiobooks')", [$name]);
             foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
-            $this->db->execute("DELETE FROM media WHERE series = ? AND type IN ('books','audiobooks')", [$name]);
+            $this->db->execute(
+                "DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE series = ?)",
+                [$name]
+            );
+        } elseif ($col === 'show_name') {
+            $items = $this->db->query("SELECT path FROM v_media WHERE show_name = ?", [$name]);
+            foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
+            $this->db->execute(
+                "DELETE FROM media WHERE id IN (SELECT media_id FROM media_shows WHERE show_name = ?)",
+                [$name]
+            );
+        } elseif ($col === 'author' && $type === 'music') {
+            $items = $this->db->query("SELECT path FROM v_media WHERE author = ? AND type = 'music'", [$name]);
+            foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
+            $this->db->execute(
+                "DELETE FROM media WHERE id IN (SELECT media_id FROM media_music WHERE artist = ?)",
+                [$name]
+            );
+        } elseif ($col === 'book_name') {
+            $items = $this->db->query("SELECT path FROM v_media WHERE book_name = ?", [$name]);
+            foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
+            $this->db->execute(
+                "DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE book_name = ?)",
+                [$name]
+            );
         } else {
-            $items = $this->db->query("SELECT path FROM media WHERE $col = ?", [$name]);
+            // Fallback: author for books/audiobooks
+            $items = $this->db->query("SELECT path FROM v_media WHERE author = ? AND type IN ('books','audiobooks')", [$name]);
             foreach ($items as $row) { if (file_exists($row['path'])) unlink($row['path']); }
-            $this->db->execute("DELETE FROM media WHERE $col = ?", [$name]);
+            $this->db->execute(
+                "DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE author = ?)",
+                [$name]
+            );
         }
 
         $count = count($items);
@@ -216,10 +310,10 @@ class MediaController
             $typeParams = [$type];
         }
 
-        $countQuery = "SELECT COUNT(*) as total FROM media WHERE {$whereClause}{$typeFilter}";
+        $countQuery = "SELECT COUNT(*) as total FROM v_media WHERE {$whereClause}{$typeFilter}";
         $total      = $this->db->first($countQuery, array_merge($searchParams, $typeParams))['total'] ?? 0;
 
-        $baseQuery = "SELECT * FROM media WHERE {$whereClause}{$typeFilter} ORDER BY type, title LIMIT ? OFFSET ?";
+        $baseQuery = "SELECT * FROM v_media WHERE {$whereClause}{$typeFilter} ORDER BY type, title LIMIT ? OFFSET ?";
         $items     = $this->db->query($baseQuery, array_merge($searchParams, $typeParams, [$limit, $offset]));
 
         $response->getBody()->write(json_encode([

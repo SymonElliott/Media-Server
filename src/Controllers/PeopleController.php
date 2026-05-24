@@ -150,7 +150,7 @@ class PeopleController
             $music = $this->db->query(
                 'SELECT COALESCE(series, title) as name, MAX(poster) as poster,
                         MAX(year) as year, MAX(author) as author, \'music\' as type
-                 FROM media WHERE type = \'music\' AND author = ?
+                 FROM v_media WHERE type = \'music\' AND author = ?
                  GROUP BY COALESCE(series, title)
                  ORDER BY MAX(year) DESC NULLS LAST',
                 [$name]
@@ -169,7 +169,7 @@ class PeopleController
 
             $movies = $this->db->query(
                 'SELECT title as name, poster, year, \'movies\' as type, MIN(path) as path
-                 FROM media WHERE type = \'movies\' AND metadata LIKE ?
+                 FROM v_media WHERE type = \'movies\' AND metadata LIKE ?
                  GROUP BY title ORDER BY year DESC NULLS LAST',
                 [$pattern]
             );
@@ -180,7 +180,7 @@ class PeopleController
 
             $shows = $this->db->query(
                 'SELECT show_name as name, MAX(poster) as poster, MAX(year) as year, \'shows\' as type
-                 FROM media WHERE type = \'shows\' AND metadata LIKE ?
+                 FROM v_media WHERE type = \'shows\' AND metadata LIKE ?
                  GROUP BY show_name HAVING show_name IS NOT NULL
                  ORDER BY MAX(year) DESC NULLS LAST',
                 [$pattern]

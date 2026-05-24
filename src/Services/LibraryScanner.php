@@ -215,7 +215,7 @@ class LibraryScanner
      */
     public function pruneType(string $type): int
     {
-        $rows    = $this->db->query('SELECT id, path FROM media WHERE type = ?', [$type]);
+        $rows    = $this->db->query('SELECT id, path FROM v_media WHERE type = ?', [$type]);
         $removed = 0;
         foreach ($rows as $row) {
             if (!file_exists($row['path'])) {
@@ -243,7 +243,7 @@ class LibraryScanner
             "SELECT id, path, filename, book_name, book_version, show_name, series,
                     title, description, poster, external_id, external_source,
                     year, metadata, metadata_fetched_at
-             FROM media WHERE type IN ($placeholders)",
+             FROM v_media WHERE type IN ($placeholders)",
             $dbTypes
         );
 
@@ -298,7 +298,7 @@ class LibraryScanner
 
         if ($groupCol && $staleRow[$groupCol]) {
             $match = $this->db->first(
-                "SELECT id FROM media WHERE filename = ? AND $groupCol = ? AND metadata_fetched_at IS NULL LIMIT 1",
+                "SELECT id FROM v_media WHERE filename = ? AND $groupCol = ? AND metadata_fetched_at IS NULL LIMIT 1",
                 [$filename, $staleRow[$groupCol]]
             );
             if ($match) return $match;
@@ -306,7 +306,7 @@ class LibraryScanner
 
         if (!preg_match('/^(chapter|part|track|disc)\s*\d+/i', $filename)) {
             $match = $this->db->first(
-                'SELECT id FROM media WHERE filename = ? AND metadata_fetched_at IS NULL LIMIT 1',
+                'SELECT id FROM v_media WHERE filename = ? AND metadata_fetched_at IS NULL LIMIT 1',
                 [$filename]
             );
             return $match ?: null;
@@ -355,37 +355,35 @@ class LibraryScanner
             default => null,
         };
 
-        $existing = $this->db->first('SELECT id, episode FROM media WHERE path = ?', [$path]);
+        // Check BEFORE upsert so we know if this is a new row.
+        $existing = $this->db->first('SELECT id, episode FROM v_media WHERE path = ?', [$path]);
 
         $chapters = ($ext === 'm4b') ? $this->probeChapters($path) : null;
 
+        // Step 1 — upsert the base media row (common fields only).
         $this->db->execute(<<<SQL
-            INSERT INTO media (type, path, filename, extension, size, title, author, series,
-                               book_name, book_version, show_name, season, episode, duration, series_order, chapters)
-            VALUES (:type, :path, :filename, :extension, :size, :title, :author, :series,
-                    :book_name, :book_version, :show_name, :season, :episode, :duration, :series_order, :chapters)
+            INSERT INTO media (type, path, filename, extension, size, title, duration)
+            VALUES (:type, :path, :filename, :extension, :size, :title, :duration)
             ON CONFLICT(path) DO UPDATE SET
-                size         = excluded.size,
-                series       = COALESCE(excluded.series, series),
-                book_name    = excluded.book_name,
-                book_version = excluded.book_version,
-                season       = excluded.season,
-                episode      = excluded.episode,
-                duration     = excluded.duration,
-                series_order = COALESCE(excluded.series_order, series_order),
-                chapters     = COALESCE(excluded.chapters, chapters),
-                indexed_at   = CURRENT_TIMESTAMP
+                size       = excluded.size,
+                title      = COALESCE(excluded.title, title),
+                duration   = COALESCE(excluded.duration, duration),
+                indexed_at = CURRENT_TIMESTAMP
         SQL, [
-            'type'         => $dbType,
-            'path'         => $path,
-            'filename'     => $file->getFilename(),
-            'extension'    => $ext,
-            'size'         => $file->getSize(),
-            'duration'     => $duration,
-            'series_order' => $series_order,
-            'chapters'     => $chapters !== null ? json_encode($chapters) : null,
-            ...$meta,
+            'type'     => $dbType,
+            'path'     => $path,
+            'filename' => $file->getFilename(),
+            'extension' => $ext,
+            'size'     => $file->getSize(),
+            'title'    => $meta['title'],
+            'duration' => $duration,
         ]);
+
+        // Fetch the media id (new insert or existing row).
+        $mediaId = (int) ($this->db->first('SELECT id FROM media WHERE path = ?', [$path])['id'] ?? 0);
+
+        // Step 2 — upsert the type-specific extension row.
+        $this->upsertExtension($dbType, $mediaId, $meta, $series_order, $chapters);
 
         // For newly-inserted rows, recover any previously-enriched metadata that
         // was stored under a different path (e.g. after a file move or rename).
@@ -413,7 +411,7 @@ class LibraryScanner
             if ($author && $bookName) {
                 $donor = $this->db->first(
                     'SELECT title, description, poster, external_id, external_source, year, series_order, metadata, metadata_fetched_at
-                     FROM media
+                     FROM v_media
                      WHERE type IN ("books","audiobooks")
                        AND author = ? AND book_name = ?
                        AND metadata_fetched_at IS NOT NULL
@@ -429,7 +427,7 @@ class LibraryScanner
             if ($showName && $season !== null && $episode !== null) {
                 $donor = $this->db->first(
                     'SELECT title, description, poster, external_id, external_source, year, metadata, metadata_fetched_at
-                     FROM media
+                     FROM v_media
                      WHERE type = "shows"
                        AND show_name = ? AND season = ? AND episode = ?
                        AND metadata_fetched_at IS NOT NULL
@@ -443,7 +441,7 @@ class LibraryScanner
             if ($title) {
                 $donor = $this->db->first(
                     'SELECT title, description, poster, external_id, external_source, year, metadata, metadata_fetched_at
-                     FROM media
+                     FROM v_media
                      WHERE type = "movies"
                        AND title = ?
                        AND metadata_fetched_at IS NOT NULL
@@ -458,6 +456,7 @@ class LibraryScanner
             return;
         }
 
+        // Update shared base fields.
         $this->db->execute(
             'UPDATE media SET
                 title               = COALESCE(:title, title),
@@ -466,7 +465,6 @@ class LibraryScanner
                 external_id         = COALESCE(:external_id, external_id),
                 external_source     = COALESCE(:external_source, external_source),
                 year                = COALESCE(:year, year),
-                series_order        = COALESCE(:series_order, series_order),
                 metadata            = COALESCE(:metadata, metadata),
                 metadata_fetched_at = COALESCE(:metadata_fetched_at, metadata_fetched_at)
              WHERE path = :path',
@@ -477,12 +475,20 @@ class LibraryScanner
                 'external_id'         => $donor['external_id'],
                 'external_source'     => $donor['external_source'],
                 'year'                => $donor['year'],
-                'series_order'        => $donor['series_order'] ?? null,
                 'metadata'            => $donor['metadata'],
                 'metadata_fetched_at' => $donor['metadata_fetched_at'],
                 'path'                => $path,
             ]
         );
+
+        // Carry series_order to the books extension table.
+        if (($donor['series_order'] ?? null) !== null && in_array($type, ['books', 'audiobooks'], true)) {
+            $this->db->execute(
+                'UPDATE media_books SET series_order = COALESCE(?, series_order)
+                 WHERE media_id = (SELECT id FROM media WHERE path = ?)',
+                [$donor['series_order'], $path]
+            );
+        }
     }
 
     /**
@@ -515,6 +521,62 @@ class LibraryScanner
         }
 
         return null;
+    }
+
+    /**
+     * Upsert a row in the type-specific extension table.
+     *
+     * @param string      $type         DB type ('movies'|'shows'|'music'|'books'|'audiobooks')
+     * @param int         $mediaId      media.id of the just-upserted base row
+     * @param array       $meta         result of extractMeta() — still uses the old generic key names
+     * @param float|null  $seriesOrder  pre-computed track/series order
+     * @param string|null $chapters     JSON chapter list for M4B files
+     */
+    private function upsertExtension(
+        string $type,
+        int    $mediaId,
+        array  $meta,
+        ?float $seriesOrder,
+        ?string $chapters
+    ): void {
+        match ($type) {
+            'shows' => $this->db->execute(
+                'INSERT INTO media_shows (media_id, show_name, season, episode)
+                 VALUES (?, ?, ?, ?)
+                 ON CONFLICT(media_id) DO UPDATE SET
+                     show_name = excluded.show_name,
+                     season    = excluded.season,
+                     episode   = excluded.episode',
+                [$mediaId, $meta['show_name'], $meta['season'], $meta['episode']]
+            ),
+
+            'music' => $this->db->execute(
+                'INSERT INTO media_music (media_id, artist, album, track_order)
+                 VALUES (?, ?, ?, ?)
+                 ON CONFLICT(media_id) DO UPDATE SET
+                     artist      = excluded.artist,
+                     album       = excluded.album,
+                     track_order = COALESCE(excluded.track_order, track_order)',
+                // $meta['author'] = artist, $meta['series'] = album (from extractMeta path parts)
+                [$mediaId, $meta['author'], $meta['series'], $seriesOrder]
+            ),
+
+            'books', 'audiobooks' => $this->db->execute(
+                'INSERT INTO media_books (media_id, book_name, author, series, series_order, book_version, chapters)
+                 VALUES (?, ?, ?, ?, ?, ?, ?)
+                 ON CONFLICT(media_id) DO UPDATE SET
+                     book_name    = excluded.book_name,
+                     author       = excluded.author,
+                     series       = COALESCE(excluded.series, series),
+                     series_order = COALESCE(excluded.series_order, series_order),
+                     book_version = excluded.book_version,
+                     chapters     = COALESCE(excluded.chapters, chapters)',
+                [$mediaId, $meta['book_name'], $meta['author'], $meta['series'],
+                 $seriesOrder, $meta['book_version'], $chapters !== null ? json_encode($chapters) : null]
+            ),
+
+            default => null, // movies: no extension table needed
+        };
     }
 
     private function extractSeriesOrder(string $name): ?float

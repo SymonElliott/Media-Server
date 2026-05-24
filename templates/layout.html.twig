@@ -1087,9 +1087,11 @@
             <form id="edit-form" onsubmit="submitEditForm(event)">
                 <input type="hidden" id="edit-id">
                 <input type="hidden" id="edit-media-type">
+
+                <!-- Title + Year (all types; title label changes per type) -->
                 <div class="form-row">
                     <div class="form-group">
-                        <label>Title</label>
+                        <label id="edit-title-label">Title</label>
                         <input type="text" id="edit-title" name="title">
                     </div>
                     <div class="form-group">
@@ -1097,25 +1099,15 @@
                         <input type="number" id="edit-year" name="year" min="1900" max="2100">
                     </div>
                 </div>
+
+                <!-- Description (all types) -->
                 <div class="form-group">
                     <label>Description</label>
                     <textarea id="edit-description" name="description"></textarea>
                 </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Author / Artist</label>
-                        <input type="text" id="edit-author" name="author">
-                    </div>
-                    <div class="form-group">
-                        <label>Series / Album</label>
-                        <input type="text" id="edit-series" name="series">
-                    </div>
-                </div>
-                <div id="edit-series-order-row" class="form-group" style="display:none;">
-                    <label>Order in Series</label>
-                    <input type="number" id="edit-series-order" name="series_order" step="0.1" min="0" placeholder="e.g. 3 or 4.5">
-                </div>
-                <div id="edit-season-episode-row" class="form-row">
+
+                <!-- Shows only: Season + Episode -->
+                <div id="edit-season-episode-row" class="form-row" style="display:none;">
                     <div class="form-group">
                         <label>Season</label>
                         <input type="number" id="edit-season" name="season" min="1">
@@ -1125,6 +1117,38 @@
                         <input type="number" id="edit-episode" name="episode" min="1">
                     </div>
                 </div>
+
+                <!-- Music / Books / Audiobooks: Author + Series (labels change per type) -->
+                <div id="edit-author-series-row" class="form-row" style="display:none;">
+                    <div class="form-group">
+                        <label id="edit-author-label">Author</label>
+                        <input type="text" id="edit-author" name="author">
+                    </div>
+                    <div class="form-group">
+                        <label id="edit-series-label">Series</label>
+                        <input type="text" id="edit-series" name="series">
+                    </div>
+                </div>
+
+                <!-- Books / Audiobooks only: Book Title + Version/Narrator -->
+                <div id="edit-book-rows" style="display:none;">
+                    <div class="form-group">
+                        <label>Book Title</label>
+                        <input type="text" id="edit-book-name" name="book_name">
+                    </div>
+                    <div class="form-group">
+                        <label>Version / Narrator</label>
+                        <input type="text" id="edit-book-version" name="book_version" placeholder="e.g. Unabridged, Read by Jane Smith">
+                    </div>
+                </div>
+
+                <!-- Music / Books / Audiobooks: series_order (label changes per type) -->
+                <div id="edit-series-order-row" class="form-group" style="display:none;">
+                    <label id="edit-series-order-label">Order in Series</label>
+                    <input type="number" id="edit-series-order" name="series_order" step="0.1" min="0" placeholder="e.g. 3 or 4.5">
+                </div>
+
+                <!-- Poster URL (all types) -->
                 <div class="form-group">
                     <label>Poster URL</label>
                     <input type="text" id="edit-poster" name="poster" placeholder="https://… or leave blank">
@@ -1921,49 +1945,76 @@
             .then(item => {
                 document.getElementById('edit-id').value          = item.id;
                 document.getElementById('edit-media-type').value  = item.type;
-                document.getElementById('edit-title').value       = item.title       || '';
-                document.getElementById('edit-year').value        = item.year        || '';
-                document.getElementById('edit-description').value = item.description || '';
-                document.getElementById('edit-author').value      = item.author      || '';
-                document.getElementById('edit-series').value      = item.series      || '';
-                document.getElementById('edit-season').value      = item.season      || '';
-                document.getElementById('edit-episode').value     = item.episode     || '';
-                document.getElementById('edit-poster').value      = item.poster      || '';
+                document.getElementById('edit-title').value       = item.title        || '';
+                document.getElementById('edit-year').value        = item.year         || '';
+                document.getElementById('edit-description').value = item.description  || '';
+                document.getElementById('edit-author').value      = item.author       || '';
+                document.getElementById('edit-series').value      = item.series       || '';
+                document.getElementById('edit-season').value      = item.season       || '';
+                document.getElementById('edit-episode').value     = item.episode      || '';
+                document.getElementById('edit-poster').value      = item.poster       || '';
+                document.getElementById('edit-book-name').value   = item.book_name    || '';
+                document.getElementById('edit-book-version').value= item.book_version || '';
+                document.getElementById('edit-series-order').value= item.series_order != null ? item.series_order : '';
 
                 const src = item.external_source && item.external_id
                     ? item.external_source.toUpperCase() + ' #' + item.external_id
                     : 'No external match';
                 document.getElementById('match-label').textContent = src;
 
-                // Pre-fill search fields
-                const isBook = ['books', 'audiobooks'].includes(item.type);
+                // ── Type-specific field visibility and labels ─────────────────
+                const t = item.type;
+                const isBook  = t === 'books' || t === 'audiobooks';
+                const isMusic = t === 'music';
+                const isShow  = t === 'shows';
+
+                // Title label
+                document.getElementById('edit-title-label').textContent =
+                    isShow  ? 'Episode Title' :
+                    isMusic ? 'Song'          : 'Title';
+
+                // Author / Series row
+                document.getElementById('edit-author-series-row').style.display =
+                    (isBook || isMusic) ? '' : 'none';
+                document.getElementById('edit-author-label').textContent = isMusic ? 'Artist' : 'Author';
+                document.getElementById('edit-series-label').textContent = isMusic ? 'Album'  : 'Series';
+
+                // Season / Episode row (shows only)
+                document.getElementById('edit-season-episode-row').style.display = isShow ? '' : 'none';
+
+                // Book-specific rows (book_name, book_version)
+                document.getElementById('edit-book-rows').style.display = isBook ? '' : 'none';
+
+                // Series order (music = Track #; books = Book # in Series)
+                document.getElementById('edit-series-order-row').style.display =
+                    (isBook || isMusic) ? '' : 'none';
+                document.getElementById('edit-series-order-label').textContent =
+                    isMusic ? 'Track #' : 'Book # in Series';
+
+                // ── Pre-fill metadata search panel ───────────────────────────
                 document.getElementById('search-author-row').style.display = isBook ? 'block' : 'none';
-                document.getElementById('edit-series-order-row').style.display = isBook ? 'block' : 'none';
-                document.getElementById('edit-season-episode-row').style.display = isBook ? 'none' : 'block';
-                document.getElementById('edit-series-order').value = item.series_order != null ? item.series_order : '';
                 if (isBook) {
-                    let t = item.title || item.filename || '';
+                    let sq = item.title || item.filename || '';
                     // For audiobooks, pre-populate with ASIN if present so Audnexus can find it
-                    if (item.type === 'audiobooks') {
-                        const asinMatch = t.match(/\b(B[0-9A-Z]{9})\b/);
+                    if (t === 'audiobooks') {
+                        const asinMatch = sq.match(/\b(B[0-9A-Z]{9})\b/);
                         if (asinMatch) {
                             document.getElementById('search-query').value  = asinMatch[1];
                             document.getElementById('search-author').value = item.author || '';
                         } else {
-                            // No ASIN — fall through to cleaned-title path below
                             item._noAsin = true;
                         }
                     }
-                    if (item.type !== 'audiobooks' || item._noAsin) {
+                    if (t !== 'audiobooks' || item._noAsin) {
                         if (item.author) {
-                            const escapedAuthor = item.author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                            t = t.replace(new RegExp('^' + escapedAuthor + '\\s*[-–:]\\s*', 'i'), '').trim();
-                            t = t.replace(new RegExp('\\s*[-–]\\s*' + escapedAuthor + '\\s*$', 'i'), '').trim();
-                            t = t.replace(new RegExp('\\s*\\(' + escapedAuthor + '\\)\\s*$', 'i'), '').trim();
+                            const esc = item.author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                            sq = sq.replace(new RegExp('^' + esc + '\\s*[-–:]\\s*', 'i'), '').trim();
+                            sq = sq.replace(new RegExp('\\s*[-–]\\s*' + esc + '\\s*$', 'i'), '').trim();
+                            sq = sq.replace(new RegExp('\\s*\\(' + esc + '\\)\\s*$', 'i'), '').trim();
                         }
-                        t = t.replace(/[_:]\s*.{0,80}(?:,\s*Book\s*[\d.]+)?(?:\s*\[[^\]]{5,}\])?$/i, '').trim();
-                        t = t.replace(/\s*\[[A-Z0-9]{9,13}\]\s*$/i, '').trim();
-                        document.getElementById('search-query').value  = t || item.title || item.filename || '';
+                        sq = sq.replace(/[_:]\s*.{0,80}(?:,\s*Book\s*[\d.]+)?(?:\s*\[[^\]]{5,}\])?$/i, '').trim();
+                        sq = sq.replace(/\s*\[[A-Z0-9]{9,13}\]\s*$/i, '').trim();
+                        document.getElementById('search-query').value  = sq || item.title || item.filename || '';
                         document.getElementById('search-author').value = item.author || '';
                     }
                 } else {
@@ -2019,19 +2070,34 @@
     function submitEditForm(event) {
         event.preventDefault();
         const id     = document.getElementById('edit-id').value;
+        const mtype  = document.getElementById('edit-media-type').value;
         const soVal  = document.getElementById('edit-series-order').value;
         const poster = document.getElementById('edit-poster').value;
 
+        // ── Base fields (all types) ───────────────────────────────────────────
         const body = {
-            title:        document.getElementById('edit-title').value,
-            year:         document.getElementById('edit-year').value         || null,
-            description:  document.getElementById('edit-description').value,
-            author:       document.getElementById('edit-author').value,
-            series:       document.getElementById('edit-series').value,
-            season:       document.getElementById('edit-season').value       || null,
-            episode:      document.getElementById('edit-episode').value      || null,
-            series_order: soVal !== '' ? parseFloat(soVal) : null,
+            title:       document.getElementById('edit-title').value,
+            year:        document.getElementById('edit-year').value || null,
+            description: document.getElementById('edit-description').value,
         };
+
+        // ── Type-specific fields ──────────────────────────────────────────────
+        if (mtype === 'shows') {
+            body.season  = document.getElementById('edit-season').value  || null;
+            body.episode = document.getElementById('edit-episode').value || null;
+        }
+        if (mtype === 'music') {
+            body.author       = document.getElementById('edit-author').value;
+            body.series       = document.getElementById('edit-series').value;
+            body.series_order = soVal !== '' ? parseFloat(soVal) : null;
+        }
+        if (mtype === 'books' || mtype === 'audiobooks') {
+            body.author       = document.getElementById('edit-author').value;
+            body.series       = document.getElementById('edit-series').value;
+            body.book_name    = document.getElementById('edit-book-name').value;
+            body.book_version = document.getElementById('edit-book-version').value;
+            body.series_order = soVal !== '' ? parseFloat(soVal) : null;
+        }
 
         // When a metadata match is selected, let the match download and set the cover.
         // Only include poster in the PATCH if the user explicitly typed a URL.

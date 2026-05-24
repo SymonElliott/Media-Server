@@ -112,7 +112,7 @@ class LibraryController
             return $response->withStatus(404);
         }
 
-        $item = $this->db->first('SELECT * FROM media WHERE path = ?', [$fullPath]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE path = ?', [$fullPath]);
 
         if (!$item) {
             return $response->withStatus(404);
@@ -173,7 +173,7 @@ class LibraryController
     private function isBooksSeries(string $author, string $name): bool
     {
         return (int) ($this->db->first(
-            'SELECT COUNT(*) as n FROM media
+            'SELECT COUNT(*) as n FROM v_media
              WHERE type IN ("books","audiobooks") AND author = ? AND series = ?',
             [$author, $name]
         )['n'] ?? 0) > 0;
@@ -189,7 +189,7 @@ class LibraryController
 
         $seriesRows = $this->db->query(
             'SELECT series as name, COUNT(DISTINCT book_name) as book_count, MAX(poster) as poster
-             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NOT NULL
+             FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NOT NULL
              GROUP BY series ORDER BY series',
             [$author]
         );
@@ -197,7 +197,7 @@ class LibraryController
         $bookRows = $this->db->query(
             'SELECT book_name as name, MAX(poster) as poster,
                     COUNT(DISTINCT book_version) as version_count
-             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NULL
+             FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND series IS NULL
                AND book_name IS NOT NULL
              GROUP BY book_name ORDER BY book_name',
             [$author]
@@ -246,7 +246,7 @@ class LibraryController
         $bookRows = $this->db->query(
             'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
                     MIN(series_order) as series_order
-             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
+             FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
                AND book_name IS NOT NULL
              GROUP BY book_name ORDER BY series_order ASC NULLS LAST, book_name ASC',
             [$author, $seriesName]
@@ -271,7 +271,7 @@ class LibraryController
         );
 
         $standaloneBook = $this->db->first(
-            'SELECT * FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ? AND series IS NULL LIMIT 1',
+            'SELECT * FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ? AND series IS NULL LIMIT 1',
             [$author, $seriesName]
         );
 
@@ -303,7 +303,7 @@ class LibraryController
         // When the URL-derived path doesn't exist (flat layout), find the real directory via DB.
         if (!is_dir($dirPath)) {
             $sampleRow = $this->db->first(
-                'SELECT path FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ?
+                'SELECT path FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ?
                  ORDER BY book_version IS NULL DESC, path ASC LIMIT 1',
                 [$author, $bookName]
             );
@@ -319,14 +319,14 @@ class LibraryController
 
         // Pull book metadata from DB (any version will have the same enriched data)
         $entity = $this->db->first(
-            'SELECT * FROM media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ?
+            'SELECT * FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND book_name = ?
              ORDER BY metadata_fetched_at DESC NULLS LAST LIMIT 1',
             [$author, $bookName]
         );
 
         // Batch-load DB rows for all files under this book directory
         $dbRows = $this->db->query(
-            'SELECT id, path, title FROM media WHERE type IN ("books","audiobooks") AND path LIKE ?',
+            'SELECT id, path, title FROM v_media WHERE type IN ("books","audiobooks") AND path LIKE ?',
             [$dirPath . '/%']
         );
         $dbByPath = [];
@@ -433,7 +433,7 @@ class LibraryController
 
         // Pull metadata from the first indexed file in this version directory
         $entity = $this->db->first(
-            'SELECT * FROM media WHERE type IN ("books","audiobooks") AND path LIKE ?
+            'SELECT * FROM v_media WHERE type IN ("books","audiobooks") AND path LIKE ?
              ORDER BY metadata_fetched_at DESC NULLS LAST LIMIT 1',
             [$dirPath . '/%']
         );
@@ -447,7 +447,7 @@ class LibraryController
                 return $response->withStatus(404);
             }
 
-            $item = $entity ?? $this->db->first('SELECT * FROM media WHERE path = ?', [$filePath]);
+            $item = $entity ?? $this->db->first('SELECT * FROM v_media WHERE path = ?', [$filePath]);
             if (!$item) {
                 return $response->withStatus(404);
             }
@@ -496,7 +496,7 @@ class LibraryController
             return $response->withStatus(404);
         }
 
-        $item = $this->db->first('SELECT * FROM media WHERE path = ?', [$realPath]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE path = ?', [$realPath]);
         if (!$item) {
             return $response->withStatus(404);
         }
@@ -824,7 +824,7 @@ class LibraryController
         $groupKey = $parts[0] ?? $urlPath;
 
         $entity = $this->db->first(
-            'SELECT * FROM media WHERE type = ? AND (show_name = ? OR author = ?)
+            'SELECT * FROM v_media WHERE type = ? AND (show_name = ? OR author = ?)
              ORDER BY metadata_fetched_at DESC NULLS LAST LIMIT 1',
             [$type, $groupKey, $groupKey]
         );
@@ -903,7 +903,7 @@ class LibraryController
 
         // Fall back to a representative media row for year/poster if album_meta not yet populated
         $entity = $this->db->first(
-            'SELECT * FROM media WHERE type = "music" AND author = ? AND series = ?
+            'SELECT * FROM v_media WHERE type = "music" AND author = ? AND series = ?
              ORDER BY metadata_fetched_at DESC NULLS LAST LIMIT 1',
             [$artist, $album]
         );
@@ -981,7 +981,7 @@ class LibraryController
 
         $prefix   = $this->libraryPath . '/shows/';
         $episodes = $this->db->query(
-            'SELECT id, title, episode, path FROM media
+            'SELECT id, title, episode, path FROM v_media
              WHERE type = "shows" AND show_name = ? AND season = ?
              ORDER BY episode',
             [$showName, $season]
@@ -1005,7 +1005,7 @@ class LibraryController
 
         $prefix = $this->libraryPath . '/music/';
         $tracks = $this->db->query(
-            'SELECT id, title, series_order, path, extension FROM media
+            'SELECT id, title, series_order, path, extension FROM v_media
              WHERE type = "music" AND author = ? AND series = ?
              ORDER BY series_order, title',
             [$artist, $album]
@@ -1030,7 +1030,7 @@ class LibraryController
         $books = $this->db->query(
             'SELECT book_name as name, MAX(poster) as poster, MAX(year) as year,
                     MIN(series_order) as series_order
-             FROM media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
+             FROM v_media WHERE type IN ("books","audiobooks") AND author = ? AND series = ?
                AND book_name IS NOT NULL
              GROUP BY book_name ORDER BY series_order ASC NULLS LAST, book_name ASC',
             [$author, $seriesName]
@@ -1049,7 +1049,7 @@ class LibraryController
     private function browseFlat(string $type, int $offset, int $limit): array
     {
         $items  = $this->db->query(
-            'SELECT * FROM media WHERE type = ? ORDER BY title LIMIT ? OFFSET ?',
+            'SELECT * FROM v_media WHERE type = ? ORDER BY title LIMIT ? OFFSET ?',
             [$type, $limit, $offset]
         );
         $prefix  = $this->libraryPath . '/' . $type . '/';
@@ -1081,11 +1081,11 @@ class LibraryController
         $items = $this->db->query(
             'SELECT show_name, COUNT(*) as episode_count, MAX(poster) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
-             FROM media WHERE type = "shows" AND show_name IS NOT NULL
+             FROM v_media WHERE type = "shows" AND show_name IS NOT NULL
              GROUP BY show_name ORDER BY show_name LIMIT ? OFFSET ?',
             [$limit, $offset]
         );
-        $total = $this->db->first('SELECT COUNT(DISTINCT show_name) as n FROM media WHERE type = "shows"');
+        $total = $this->db->first('SELECT COUNT(DISTINCT show_name) as n FROM v_media WHERE type = "shows"');
         return [$items, (int) ($total['n'] ?? 0), true];
     }
 
@@ -1101,11 +1101,11 @@ class LibraryController
                         MAX(poster)
                     ) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
-             FROM media m WHERE type = "music" AND author IS NOT NULL
+             FROM v_media m WHERE type = "music" AND author IS NOT NULL
              GROUP BY author ORDER BY author LIMIT ? OFFSET ?',
             [$limit, $offset]
         );
-        $total = $this->db->first('SELECT COUNT(DISTINCT author) as n FROM media WHERE type = "music"');
+        $total = $this->db->first('SELECT COUNT(DISTINCT author) as n FROM v_media WHERE type = "music"');
         return [$items, (int) ($total['n'] ?? 0), true];
     }
 
@@ -1113,13 +1113,13 @@ class LibraryController
     {
         // Prune author groups whose directories no longer exist
         $groups = $this->db->query(
-            'SELECT DISTINCT author as grp FROM media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
+            'SELECT DISTINCT author as grp FROM v_media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
         );
         foreach ($groups as $row) {
             $dir = $this->libraryPath . '/books/' . $row['grp'];
             if (!is_dir($dir)) {
                 $this->db->execute(
-                    'DELETE FROM media WHERE type IN ("books","audiobooks") AND author = ?',
+                    'DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE author = ?)',
                     [$row['grp']]
                 );
             }
@@ -1133,12 +1133,12 @@ class LibraryController
                         MAX(poster)
                     ) as poster,
                     SUM(CASE WHEN metadata_fetched_at IS NULL THEN 1 ELSE 0 END) as pending_meta
-             FROM media m WHERE type IN ("books","audiobooks") AND author IS NOT NULL
+             FROM v_media m WHERE type IN ("books","audiobooks") AND author IS NOT NULL
              GROUP BY author ORDER BY author LIMIT ? OFFSET ?',
             [$limit, $offset]
         );
         $total = $this->db->first(
-            'SELECT COUNT(DISTINCT author) as n FROM media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
+            'SELECT COUNT(DISTINCT author) as n FROM v_media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
         );
         return [$items, (int) ($total['n'] ?? 0), true];
     }
@@ -1149,7 +1149,7 @@ class LibraryController
         $items  = $this->db->query(
             'SELECT m.id, m.title, m.author, m.series as album, m.year, m.duration, m.path, m.extension,
                     m.metadata_fetched_at, am.poster
-             FROM media m
+             FROM v_media m
              LEFT JOIN album_meta am ON am.album = m.series AND am.artist = m.author
              WHERE m.type = "music"
              ORDER BY m.title ASC LIMIT ? OFFSET ?',
@@ -1169,7 +1169,7 @@ class LibraryController
             'SELECT m.series as name, m.author,
                     am.poster, am.year,
                     COUNT(DISTINCT m.id) as track_count
-             FROM media m
+             FROM v_media m
              LEFT JOIN album_meta am ON am.album = m.series AND am.artist = m.author
              WHERE m.type = \'music\' AND m.series IS NOT NULL AND m.author IS NOT NULL
              GROUP BY m.author, m.series
@@ -1183,7 +1183,7 @@ class LibraryController
         unset($item);
         $total = $this->db->first(
             'SELECT COUNT(*) as n FROM (
-                SELECT DISTINCT author, series FROM media
+                SELECT DISTINCT author, series FROM v_media
                 WHERE type = \'music\' AND series IS NOT NULL AND author IS NOT NULL
              )'
         );
@@ -1196,7 +1196,7 @@ class LibraryController
             'SELECT series as name, MAX(author) as author,
                     MAX(poster) as poster, MAX(year) as year,
                     COUNT(DISTINCT id) as item_count
-             FROM media
+             FROM v_media
              WHERE type IN (\'books\', \'audiobooks\') AND series IS NOT NULL AND author IS NOT NULL
              GROUP BY author, series
              ORDER BY series ASC
@@ -1209,7 +1209,7 @@ class LibraryController
         unset($item);
         $total = $this->db->first(
             'SELECT COUNT(*) as n FROM (
-                SELECT DISTINCT author, series FROM media
+                SELECT DISTINCT author, series FROM v_media
                 WHERE type IN (\'books\', \'audiobooks\') AND series IS NOT NULL AND author IS NOT NULL
              )'
         );
@@ -1226,7 +1226,7 @@ class LibraryController
                     MAX(year) as year,
                     MAX(CASE WHEN type = \'audiobooks\' THEN 1 ELSE 0 END) as has_audio,
                     MAX(CASE WHEN type = \'books\'      THEN 1 ELSE 0 END) as has_ebook
-             FROM media
+             FROM v_media
              WHERE type IN ("books","audiobooks") AND book_name IS NOT NULL AND author IS NOT NULL
              GROUP BY author, book_name
              ORDER BY book_name ASC, author ASC
@@ -1240,7 +1240,7 @@ class LibraryController
         unset($item);
         $total = $this->db->first(
             'SELECT COUNT(*) as n FROM (
-                SELECT DISTINCT author, book_name FROM media
+                SELECT DISTINCT author, book_name FROM v_media
                 WHERE type IN ("books","audiobooks") AND book_name IS NOT NULL AND author IS NOT NULL
              )'
         );
@@ -1250,13 +1250,25 @@ class LibraryController
     private function pruneGroupsByDirectory(string $type, string $col): void
     {
         $groups = $this->db->query(
-            "SELECT DISTINCT $col as grp FROM media WHERE type = ?",
+            "SELECT DISTINCT $col as grp FROM v_media WHERE type = ?",
             [$type]
         );
         foreach ($groups as $row) {
             $dir = $this->libraryPath . '/' . $type . '/' . $row['grp'];
             if (!is_dir($dir)) {
-                $this->db->execute("DELETE FROM media WHERE type = ? AND $col = ?", [$type, $row['grp']]);
+                // Route DELETE through extension tables — $col is not on the base media table
+                if ($col === 'show_name') {
+                    $this->db->execute(
+                        'DELETE FROM media WHERE id IN (SELECT media_id FROM media_shows WHERE show_name = ?)',
+                        [$row['grp']]
+                    );
+                } else {
+                    // 'author' (music) — maps to media_music.artist
+                    $this->db->execute(
+                        'DELETE FROM media WHERE id IN (SELECT media_id FROM media_music WHERE artist = ?)',
+                        [$row['grp']]
+                    );
+                }
             }
         }
     }
@@ -1288,7 +1300,7 @@ class LibraryController
 
         $placeholders = implode(',', array_fill(0, count($filePaths), '?'));
         $rows         = $this->db->query(
-            "SELECT id, path, title, poster, season, episode, duration FROM media WHERE path IN ($placeholders)",
+            "SELECT id, path, title, poster, season, episode, duration FROM v_media WHERE path IN ($placeholders)",
             $filePaths
         );
         $metaByPath = array_column($rows, null, 'path');
@@ -1430,7 +1442,7 @@ class LibraryController
         }
 
         $ext  = strtolower(pathinfo($filePath, PATHINFO_EXTENSION));
-        $item = $this->db->first('SELECT * FROM media WHERE path = ?', [$filePath]);
+        $item = $this->db->first('SELECT * FROM v_media WHERE path = ?', [$filePath]);
 
         if (!$item || !in_array($ext, ['epub', 'pdf', 'mobi', 'azw', 'azw3'], true)) {
             return $response->withStatus(404);
