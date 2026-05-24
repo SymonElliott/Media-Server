@@ -260,46 +260,56 @@ class Connection
         }
 
         // ── v_media view (recreated every boot to stay current) ──────────────
+        // Two concurrent requests can race here: both DROP the view, then both
+        // attempt CREATE. Catch "already exists" — whichever connection won the
+        // race created the correct definition; the loser can safely continue.
         $this->pdo->exec('DROP VIEW IF EXISTS v_media');
-        $this->pdo->exec(<<<'SQL'
-            CREATE VIEW v_media AS
-            SELECT
-                m.id,
-                m.type,
-                m.path,
-                m.filename,
-                m.extension,
-                m.size,
-                m.title,
-                m.year,
-                m.description,
-                m.poster,
-                m.external_id,
-                m.external_source,
-                m.metadata,
-                m.metadata_fetched_at,
-                m.indexed_at,
-                m.duration,
-                -- Shows-specific fields
-                ms.show_name,
-                ms.season,
-                ms.episode,
-                ms.still,
-                -- Books/audiobooks-specific fields
-                mb.book_name,
-                mb.book_version,
-                mb.chapters,
-                -- author: music→artist  |  books/audiobooks→author
-                CASE m.type WHEN 'music' THEN mu.artist ELSE mb.author END AS author,
-                -- series: music→album   |  books/audiobooks→series
-                CASE m.type WHEN 'music' THEN mu.album  ELSE mb.series END AS series,
-                -- series_order: music→track_order  |  books/audiobooks→series_order
-                CASE m.type WHEN 'music' THEN mu.track_order ELSE mb.series_order END AS series_order
-            FROM media m
-            LEFT JOIN media_shows ms ON ms.media_id = m.id
-            LEFT JOIN media_music  mu ON mu.media_id = m.id
-            LEFT JOIN media_books  mb ON mb.media_id = m.id
-        SQL);
+        try {
+            $this->pdo->exec(<<<'SQL'
+                CREATE VIEW v_media AS
+                SELECT
+                    m.id,
+                    m.type,
+                    m.path,
+                    m.filename,
+                    m.extension,
+                    m.size,
+                    m.title,
+                    m.year,
+                    m.description,
+                    m.poster,
+                    m.external_id,
+                    m.external_source,
+                    m.metadata,
+                    m.metadata_fetched_at,
+                    m.indexed_at,
+                    m.duration,
+                    -- Shows-specific fields
+                    ms.show_name,
+                    ms.season,
+                    ms.episode,
+                    ms.still,
+                    -- Books/audiobooks-specific fields
+                    mb.book_name,
+                    mb.book_version,
+                    mb.chapters,
+                    -- author: music→artist  |  books/audiobooks→author
+                    CASE m.type WHEN 'music' THEN mu.artist ELSE mb.author END AS author,
+                    -- series: music→album   |  books/audiobooks→series
+                    CASE m.type WHEN 'music' THEN mu.album  ELSE mb.series END AS series,
+                    -- series_order: music→track_order  |  books/audiobooks→series_order
+                    CASE m.type WHEN 'music' THEN mu.track_order ELSE mb.series_order END AS series_order
+                FROM media m
+                LEFT JOIN media_shows ms ON ms.media_id = m.id
+                LEFT JOIN media_music  mu ON mu.media_id = m.id
+                LEFT JOIN media_books  mb ON mb.media_id = m.id
+            SQL);
+        } catch (\PDOException $e) {
+            if (!str_contains($e->getMessage(), 'already exists')) {
+                throw $e;
+            }
+            // Another concurrent connection already recreated the view — no action needed.
+        }
     }
 
     /**
