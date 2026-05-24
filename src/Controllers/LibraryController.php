@@ -1111,17 +1111,20 @@ class LibraryController
 
     private function browseBooks(int $offset, int $limit): array
     {
-        // Prune author groups whose directories no longer exist
-        $groups = $this->db->query(
-            'SELECT DISTINCT author as grp FROM v_media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
-        );
-        foreach ($groups as $row) {
-            $dir = $this->libraryPath . '/books/' . $row['grp'];
-            if (!is_dir($dir)) {
-                $this->db->execute(
-                    'DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE author = ?)',
-                    [$row['grp']]
-                );
+        // Prune author groups whose directories no longer exist.
+        // Safety: skip pruning if the books library root is not accessible (NAS not mounted).
+        if (is_dir($this->libraryPath . '/books')) {
+            $groups = $this->db->query(
+                'SELECT DISTINCT author as grp FROM v_media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
+            );
+            foreach ($groups as $row) {
+                $dir = $this->libraryPath . '/books/' . $row['grp'];
+                if (!is_dir($dir)) {
+                    $this->db->execute(
+                        'DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE author = ?)',
+                        [$row['grp']]
+                    );
+                }
             }
         }
 
@@ -1249,6 +1252,14 @@ class LibraryController
 
     private function pruneGroupsByDirectory(string $type, string $col): void
     {
+        // Safety: if the library root for this type is not accessible (e.g. NAS volume
+        // not yet mounted after container restart), skip pruning entirely.
+        // Without this guard every group's is_dir() check returns false and ALL media
+        // for this type gets mass-deleted on the first browse request.
+        if (!is_dir($this->libraryPath . '/' . $type)) {
+            return;
+        }
+
         $groups = $this->db->query(
             "SELECT DISTINCT $col as grp FROM v_media WHERE type = ?",
             [$type]
