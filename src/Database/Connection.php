@@ -296,6 +296,13 @@ class Connection
             "INSERT OR IGNORE INTO media_movies (media_id)
              SELECT id FROM media WHERE type = 'movies'"
         );
+
+        // ── Step 4: force v_media to be rebuilt with the v1 definition ────────
+        // Drops any stale view (old flat schema, media_legacy reference, or missing
+        // media_movies JOIN).  recreateView() runs immediately after and recreates
+        // it with IF NOT EXISTS, so this drop is the only place v_media is ever
+        // removed — eliminating the race window of the previous DROP+CREATE approach.
+        $this->pdo->exec('DROP VIEW IF EXISTS v_media');
     }
 
     /**
@@ -375,19 +382,21 @@ class Connection
 
     // ── View recreation ───────────────────────────────────────────────────────
     //
-    // v_media is always dropped and recreated on every boot.
+    // v_media is created once with IF NOT EXISTS — it is NEVER dropped here.
     //
-    // SQLite 3.26.0+ silently rewrites view SQL when a table is renamed, leaving
-    // the view pointing at the now-deleted table.  Rather than trying to detect
-    // this (every detection approach has edge-case failure modes), we simply
-    // unconditionally recreate the view — it takes microseconds and guarantees
-    // the view is always correct.
+    // The previous DROP+CREATE pattern had a race window: between the DROP and
+    // the CREATE, any concurrent FPM request that opened a new Connection would
+    // also run DROP+CREATE, and any scan.php query landing in that gap would see
+    // "no such table: v_media".
+    //
+    // The only place v_media is ever dropped is inside versioned migrations
+    // (migrate_v1 Step 4), which runs exactly once.  On every subsequent boot,
+    // IF NOT EXISTS is a no-op and the view is never removed.
 
     private function recreateView(): void
     {
-        $this->pdo->exec('DROP VIEW IF EXISTS v_media');
         $this->pdo->exec(<<<'SQL'
-            CREATE VIEW v_media AS
+            CREATE VIEW IF NOT EXISTS v_media AS
             SELECT
                 m.id,
                 m.type,
