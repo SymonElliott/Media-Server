@@ -259,57 +259,55 @@ class Connection
             }
         }
 
-        // ── v_media view (recreated every boot to stay current) ──────────────
-        // Two concurrent requests can race here: both DROP the view, then both
-        // attempt CREATE. Catch "already exists" — whichever connection won the
-        // race created the correct definition; the loser can safely continue.
-        $this->pdo->exec('DROP VIEW IF EXISTS v_media');
-        try {
-            $this->pdo->exec(<<<'SQL'
-                CREATE VIEW v_media AS
-                SELECT
-                    m.id,
-                    m.type,
-                    m.path,
-                    m.filename,
-                    m.extension,
-                    m.size,
-                    m.title,
-                    m.year,
-                    m.description,
-                    m.poster,
-                    m.external_id,
-                    m.external_source,
-                    m.metadata,
-                    m.metadata_fetched_at,
-                    m.indexed_at,
-                    m.duration,
-                    -- Shows-specific fields
-                    ms.show_name,
-                    ms.season,
-                    ms.episode,
-                    ms.still,
-                    -- Books/audiobooks-specific fields
-                    mb.book_name,
-                    mb.book_version,
-                    mb.chapters,
-                    -- author: music→artist  |  books/audiobooks→author
-                    CASE m.type WHEN 'music' THEN mu.artist ELSE mb.author END AS author,
-                    -- series: music→album   |  books/audiobooks→series
-                    CASE m.type WHEN 'music' THEN mu.album  ELSE mb.series END AS series,
-                    -- series_order: music→track_order  |  books/audiobooks→series_order
-                    CASE m.type WHEN 'music' THEN mu.track_order ELSE mb.series_order END AS series_order
-                FROM media m
-                LEFT JOIN media_shows ms ON ms.media_id = m.id
-                LEFT JOIN media_music  mu ON mu.media_id = m.id
-                LEFT JOIN media_books  mb ON mb.media_id = m.id
-            SQL);
-        } catch (\PDOException $e) {
-            if (!str_contains($e->getMessage(), 'already exists')) {
-                throw $e;
-            }
-            // Another concurrent connection already recreated the view — no action needed.
-        }
+        // ── v_media view ──────────────────────────────────────────────────────
+        // Use IF NOT EXISTS — never drop an existing view.
+        //
+        // Dropping on every boot creates a race window: a long-running scan.php
+        // query against v_media can land between the DROP and the subsequent
+        // CREATE of a concurrent HTTP request, producing "no such table: v_media".
+        //
+        // The definition is stable within a release. If the definition ever needs
+        // to change, add a versioned migration below (check sqlite_schema.sql and
+        // drop+recreate explicitly in a one-time gate, like migrateToExtensionTables).
+        $this->pdo->exec(<<<'SQL'
+            CREATE VIEW IF NOT EXISTS v_media AS
+            SELECT
+                m.id,
+                m.type,
+                m.path,
+                m.filename,
+                m.extension,
+                m.size,
+                m.title,
+                m.year,
+                m.description,
+                m.poster,
+                m.external_id,
+                m.external_source,
+                m.metadata,
+                m.metadata_fetched_at,
+                m.indexed_at,
+                m.duration,
+                -- Shows-specific fields
+                ms.show_name,
+                ms.season,
+                ms.episode,
+                ms.still,
+                -- Books/audiobooks-specific fields
+                mb.book_name,
+                mb.book_version,
+                mb.chapters,
+                -- author: music→artist  |  books/audiobooks→author
+                CASE m.type WHEN 'music' THEN mu.artist ELSE mb.author END AS author,
+                -- series: music→album   |  books/audiobooks→series
+                CASE m.type WHEN 'music' THEN mu.album  ELSE mb.series END AS series,
+                -- series_order: music→track_order  |  books/audiobooks→series_order
+                CASE m.type WHEN 'music' THEN mu.track_order ELSE mb.series_order END AS series_order
+            FROM media m
+            LEFT JOIN media_shows ms ON ms.media_id = m.id
+            LEFT JOIN media_music  mu ON mu.media_id = m.id
+            LEFT JOIN media_books  mb ON mb.media_id = m.id
+        SQL);
     }
 
     /**
