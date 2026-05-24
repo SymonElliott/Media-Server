@@ -176,6 +176,10 @@ class LibraryScanner
 
                         if (++$this->progressWriteCounter % 20 === 0) {
                             $this->writeState(['running' => true, 'current_type' => $type, ...$stats]);
+                            if ($this->isStopRequested()) {
+                                $this->log('  Stop requested — halting scan');
+                                return $stats;
+                            }
                         }
                     } catch (\Throwable $e) {
                         // Per-file error (e.g. stat() on a broken symlink) — skip and continue.
@@ -313,6 +317,20 @@ class LibraryScanner
         }
 
         return null;
+    }
+
+    /**
+     * Returns true if resetScan() has written a stop_requested flag to the state file.
+     * Checked every 20 files so the scan halts promptly even if SIGTERM was ignored.
+     */
+    private function isStopRequested(): bool
+    {
+        if ($this->stateFile === null || !file_exists($this->stateFile)) {
+            return false;
+        }
+        $raw   = @file_get_contents($this->stateFile);
+        $state = $raw !== false ? (json_decode($raw, true) ?? []) : [];
+        return (bool) ($state['stop_requested'] ?? false);
     }
 
     private function writeState(array $data): void

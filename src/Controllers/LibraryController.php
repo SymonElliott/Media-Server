@@ -658,17 +658,42 @@ class LibraryController
             ? (json_decode(file_get_contents($stateFile), true) ?? [])
             : [];
 
-        // Kill the background scan process if we recorded its PID.
         $pid = isset($state['pid']) ? (int) $state['pid'] : 0;
-        if ($pid > 1 && ($state['running'] ?? false)) {
+
+        // Write a cooperative stop flag FIRST — the scan loop checks this every
+        // 20 files so it will exit gracefully even if the signal is not received.
+        file_put_contents($stateFile, json_encode(array_merge($state, [
+            'running'       => false,
+            'stop_requested' => true,
+        ])), LOCK_EX);
+
+        // Also send a signal so the scan stops mid-file rather than at the next
+        // 20-file checkpoint.
+        if ($pid > 1) {
             if (function_exists('posix_kill')) {
+                // SIGTERM first — gives the process a chance to run its shutdown function.
                 posix_kill($pid, SIGTERM);
+                // Wait up to 500 ms; if still alive, escalate to SIGKILL.
+                for ($i = 0; $i < 5; $i++) {
+                    usleep(100_000);
+                    if (!$this->pidIsAlive($pid)) break;
+                }
+                if ($this->pidIsAlive($pid)) {
+                    posix_kill($pid, SIGKILL);
+                }
             } else {
-                exec('kill -TERM ' . $pid . ' 2>/dev/null');
+                // Fallback for containers without the posix extension.
+                // Try both SIGTERM and (after a short wait) SIGKILL.
+                exec('/bin/kill -TERM ' . $pid . ' 2>/dev/null');
+                usleep(300_000);
+                exec('/bin/kill -KILL ' . $pid . ' 2>/dev/null');
             }
         }
 
+        // Re-write clean final state (the process may have clobbered it after the
+        // stop flag write above, but it can't after it's been killed).
         file_put_contents($stateFile, json_encode(['running' => false]), LOCK_EX);
+
         $response->getBody()->write(json_encode(['reset' => true]));
         return $response->withHeader('Content-Type', 'application/json');
     }

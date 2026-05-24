@@ -92,6 +92,73 @@
         .settings-row-label { flex: none; width: 100%; }
         .settings-row-control { width: 100%; }
     }
+
+    .btn-danger {
+        padding: 0.4rem 0.9rem;
+        font-size: 0.83rem;
+        font-weight: 500;
+        font-family: inherit;
+        border-radius: 5px;
+        cursor: pointer;
+        border: 1px solid #ef4444;
+        background: transparent;
+        color: #ef4444;
+        transition: background 0.15s, color 0.15s;
+    }
+    .btn-danger:hover { background: #ef4444; color: #fff; }
+    .btn-danger:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Confirmation modal */
+    #db-clear-modal {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        background: rgba(0,0,0,0.6);
+        align-items: center;
+        justify-content: center;
+    }
+    #db-clear-modal.open { display: flex; }
+    #db-clear-modal-box {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 1.75rem;
+        width: min(420px, 90vw);
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+    #db-clear-modal-box h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 600;
+        color: #ef4444;
+    }
+    #db-clear-modal-box p {
+        margin: 0;
+        font-size: 0.85rem;
+        color: var(--muted);
+        line-height: 1.5;
+    }
+    #db-clear-modal-box strong { color: var(--text); }
+    .db-clear-confirm-input {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.88rem;
+        font-family: monospace;
+        border-radius: 5px;
+        border: 1px solid var(--border);
+        background: var(--surface2);
+        color: var(--text);
+        box-sizing: border-box;
+    }
+    .db-clear-confirm-input:focus { outline: none; border-color: #ef4444; }
+    .db-clear-modal-actions {
+        display: flex;
+        gap: 0.75rem;
+        justify-content: flex-end;
+    }
 </style>
 
 <div class="settings-page">
@@ -198,6 +265,21 @@
         </div>
     </form>
 
+    {# ── Danger Zone ──────────────────────────────────────────────────────── #}
+    <div class="settings-section" id="danger-section" style="border-color: rgba(239,68,68,0.3);">
+        <div class="settings-section-title" style="color:#ef4444;">Danger Zone</div>
+
+        <div class="settings-row">
+            <div class="settings-row-label">
+                <strong>Clear database</strong>
+                <span>Removes all media, people, and metadata. Users and settings are kept. Run a scan to rebuild.</span>
+            </div>
+            <div class="settings-row-control" style="display:flex;justify-content:flex-end;">
+                <button type="button" class="btn-danger" onclick="openDbClearModal()">Clear Database</button>
+            </div>
+        </div>
+    </div>
+
     {# ── System / Updates ─────────────────────────────────────────────────── #}
     <div class="settings-section" id="system-section">
         <div class="settings-section-title">System</div>
@@ -218,6 +300,25 @@
                     max-height:220px;overflow-y:auto;
                 "></div>
             </div>
+        </div>
+    </div>
+</div>
+
+{# ── Confirm-clear modal ───────────────────────────────────────────────────── #}
+<div id="db-clear-modal" role="dialog" aria-modal="true" aria-labelledby="db-clear-title">
+    <div id="db-clear-modal-box">
+        <h3 id="db-clear-title">⚠ Clear database?</h3>
+        <p>
+            This will permanently delete all <strong>media records, people, and metadata</strong>.<br>
+            Users and settings are preserved. Run a full scan afterwards to rebuild the library.
+        </p>
+        <p>Type <strong>CLEAR</strong> to confirm:</p>
+        <input id="db-clear-input" class="db-clear-confirm-input"
+               type="text" placeholder="CLEAR" autocomplete="off" spellcheck="false">
+        <div class="db-clear-modal-actions">
+            <button type="button" class="btn-secondary" onclick="closeDbClearModal()">Cancel</button>
+            <button type="button" class="btn-danger" id="db-clear-confirm-btn"
+                    onclick="confirmDbClear()" disabled>Clear Database</button>
         </div>
     </div>
 </div>
@@ -323,5 +424,59 @@ document.getElementById('settings-form').addEventListener('submit', async functi
         btn.textContent = 'Save Settings';
     }
 });
+
+// ── DB Clear modal ────────────────────────────────────────────────────────────
+function openDbClearModal() {
+    const modal = document.getElementById('db-clear-modal');
+    const input = document.getElementById('db-clear-input');
+    input.value = '';
+    document.getElementById('db-clear-confirm-btn').disabled = true;
+    modal.classList.add('open');
+    input.focus();
+}
+
+function closeDbClearModal() {
+    document.getElementById('db-clear-modal').classList.remove('open');
+}
+
+// Enable the confirm button only when the user types "CLEAR" exactly
+document.getElementById('db-clear-input').addEventListener('input', function () {
+    document.getElementById('db-clear-confirm-btn').disabled = (this.value !== 'CLEAR');
+});
+
+// Close on backdrop click
+document.getElementById('db-clear-modal').addEventListener('click', function (e) {
+    if (e.target === this) closeDbClearModal();
+});
+
+// Close on Escape
+document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeDbClearModal();
+});
+
+async function confirmDbClear() {
+    const input   = document.getElementById('db-clear-input');
+    const btn     = document.getElementById('db-clear-confirm-btn');
+    if (input.value !== 'CLEAR') return;
+
+    btn.disabled    = true;
+    btn.textContent = 'Clearing…';
+
+    try {
+        const res = await fetch('/system/db-clear', { method: 'POST' });
+        if (res.ok) {
+            closeDbClearModal();
+            showToast('Database cleared. Run a scan to rebuild the library.');
+        } else {
+            const d = await res.json().catch(() => ({}));
+            showToast('Clear failed: ' + (d.error ?? res.status));
+        }
+    } catch (err) {
+        showToast('Clear failed: ' + err.message);
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = 'Clear Database';
+    }
+}
 </script>
 {% endblock %}

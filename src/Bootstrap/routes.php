@@ -76,6 +76,7 @@ return function (App $app): void {
     $app->post('/settings', SettingsController::class . ':save');
     $app->post('/system/git-pull', SettingsController::class . ':gitPull');
     $app->get('/system/version', SettingsController::class . ':version');
+    $app->post('/system/db-clear', SettingsController::class . ':dbClear');
 
     $app->get('/people', PeopleController::class . ':browse');
     $app->get('/people/{slug}', PeopleController::class . ':detail');

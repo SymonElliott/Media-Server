@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Controllers;
 
+use App\Database\Connection;
 use App\Services\AppLogger;
 use App\Services\Settings;
 use Psr\Http\Message\ResponseInterface as Response;
@@ -32,6 +33,7 @@ class SettingsController
 
     public function __construct(
         private readonly Environment $twig,
+        private readonly Connection  $db,
         private readonly Settings    $settings,
         private readonly AppLogger   $log,
     ) {}
@@ -164,6 +166,47 @@ class SettingsController
             'steps'            => $steps,
         ], $info)));
 
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    /** POST /system/db-clear — wipe all media/people/metadata rows. Admin only. */
+    public function dbClear(Request $request, Response $response): Response
+    {
+        if (($_SESSION['user']['role'] ?? '') !== 'admin') {
+            return $response->withStatus(403);
+        }
+
+        $pdo = $this->db->pdo();
+
+        // Wrap in a transaction so it either fully completes or fully rolls back.
+        $pdo->beginTransaction();
+        try {
+            // Delete all media rows — ON DELETE CASCADE removes extension rows
+            // (media_shows, media_music, media_books) automatically.
+            $pdo->exec('DELETE FROM media');
+
+            // Clear derived/enrichment tables
+            $pdo->exec('DELETE FROM people');
+            $pdo->exec('DELETE FROM series_meta');
+            $pdo->exec('DELETE FROM album_meta');
+
+            // Clear watch progress (media it referenced is gone)
+            $pdo->exec('DELETE FROM progress');
+
+            // Reset autoincrement counters so IDs start from 1 again
+            $pdo->exec("DELETE FROM sqlite_sequence WHERE name IN
+                ('media','people','series_meta','album_meta','progress')");
+
+            $pdo->commit();
+        } catch (\Throwable $e) {
+            $pdo->rollBack();
+            $this->log->error('system', 'db-clear failed: ' . $e->getMessage());
+            $response->getBody()->write(json_encode(['ok' => false, 'error' => $e->getMessage()]));
+            return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
+        }
+
+        $this->log->info('system', 'Database cleared by ' . ($_SESSION['user']['username'] ?? 'unknown'));
+        $response->getBody()->write(json_encode(['ok' => true]));
         return $response->withHeader('Content-Type', 'application/json');
     }
 

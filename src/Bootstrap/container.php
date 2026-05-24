@@ -175,6 +175,7 @@ return [
     SettingsController::class => function ($c) {
         return new SettingsController(
             $c->get(Environment::class),
+            $c->get(Connection::class),
             $c->get(Settings::class),
             $c->get(AppLogger::class)
         );
