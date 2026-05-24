@@ -518,7 +518,57 @@ class MetadataService
             $this->log("[music] {$label} ✗ no match");
         }
         $this->applyToAlbum($artist, $album, $meta, true);
+
+        // Apply per-track ordering using the MusicBrainz track listing.
+        // release_mbid is stored in the metadata so we can look up the exact
+        // track list (release-group IDs don't carry track positions).
+        $releaseMbid = $meta['metadata']['release_mbid'] ?? null;
+        if ($releaseMbid && $artist && $album) {
+            usleep(1_100_000); // MB rate limit: 1 req/sec
+            $this->applyTrackOrder($artist, $album, $releaseMbid);
+        }
+
         $this->renamer?->renameAlbumTracks($artist, $album ?? '');
+    }
+
+    /**
+     * Fetch the track listing for a release and write series_order to each matched row.
+     *
+     * Matching is done by normalised title so "01 - Stairway to Heaven" in the DB
+     * matches "Stairway to Heaven" from MusicBrainz.  Unmatched tracks keep whatever
+     * series_order was extracted from the filename during scanning.
+     */
+    private function applyTrackOrder(string $artist, string $album, string $releaseMbid): void
+    {
+        $trackMap = $this->musicBrainz->fetchReleaseTracks($releaseMbid);
+        if (!$trackMap) {
+            return;
+        }
+
+        $rows = $this->db->query(
+            'SELECT id, title, filename FROM media WHERE type = "music" AND author = ? AND series = ?',
+            [$artist, $album]
+        );
+
+        $matched = 0;
+        foreach ($rows as $row) {
+            // Use DB title (which may already be the canonical name from a previous
+            // enrichment run) or fall back to the filename stem.
+            $title      = $row['title'] ?? pathinfo((string) $row['filename'], PATHINFO_FILENAME);
+            $normalised = $this->musicBrainz->normaliseTitle($title);
+
+            if (isset($trackMap[$normalised])) {
+                $this->db->execute(
+                    'UPDATE media SET series_order = ? WHERE id = ?',
+                    [$trackMap[$normalised], $row['id']]
+                );
+                $matched++;
+            }
+        }
+
+        if ($matched > 0) {
+            $this->log("[music] track order set for {$matched} / " . count($rows) . " tracks in \"{$album}\"");
+        }
     }
 
     private function enrichBook(array $item): void

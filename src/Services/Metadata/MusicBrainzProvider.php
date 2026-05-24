@@ -145,10 +145,11 @@ class MusicBrainzProvider
                 'year'            => $year,
                 'poster_url'      => $coverUrl,
                 'metadata'        => [
-                    'artist' => $artist,
-                    'label'  => $hit['label-info'][0]['label']['name'] ?? null,
-                    'genres' => $genres,
-                    'type'   => $albumType,
+                    'artist'       => $artist,
+                    'label'        => $hit['label-info'][0]['label']['name'] ?? null,
+                    'genres'       => $genres,
+                    'type'         => $albumType,
+                    'release_mbid' => $releaseMbid,   // stored for per-track ordering lookups
                 ],
             ];
         } catch (GuzzleException) {
@@ -156,7 +157,62 @@ class MusicBrainzProvider
         }
     }
 
+    /**
+     * Fetch the track listing for a specific release (not release-group).
+     *
+     * Returns a map of  normalised-title → series_order (float).
+     * For single-disc releases series_order is just the track position (1, 2, 3…).
+     * For multi-disc releases it is  disc * 100 + track  (e.g. disc 2 track 5 → 205).
+     *
+     * Normalisation: lowercase, strip punctuation/symbols, collapse whitespace —
+     * so "Stairway to Heaven" and "01 - Stairway to Heaven" both map to
+     * "stairway to heaven".
+     */
+    public function fetchReleaseTracks(string $releaseMbid): array
+    {
+        try {
+            $res  = $this->http->get(self::BASE . "/release/{$releaseMbid}", [
+                'query'   => ['inc' => 'recordings+media', 'fmt' => 'json'],
+                'headers' => ['User-Agent' => $this->userAgent],
+            ]);
+            $data = json_decode($res->getBody()->getContents(), true);
+
+            $mediaList  = $data['media'] ?? [];
+            $multiDisc  = count($mediaList) > 1;
+            $trackMap   = [];
+
+            foreach ($mediaList as $medium) {
+                $discPos = (int) ($medium['position'] ?? 1);
+                foreach ($medium['tracks'] ?? [] as $track) {
+                    $pos   = (int) ($track['position'] ?? 0);
+                    $order = $multiDisc
+                        ? (float) ($discPos * 100 + $pos)
+                        : (float) $pos;
+                    $title = $track['title'] ?? '';
+                    if ($title !== '') {
+                        $trackMap[$this->normaliseTitle($title)] = $order;
+                    }
+                }
+            }
+            return $trackMap;
+        } catch (GuzzleException) {
+            return [];
+        }
+    }
+
     // ── Private helpers ──────────────────────────────────────────────────────
+
+    /**
+     * Normalise a track title for fuzzy matching against filenames.
+     * Strips leading track numbers, lowercases, removes punctuation.
+     */
+    public function normaliseTitle(string $s): string
+    {
+        $s = preg_replace('/^\d+\s*[-._]\s*/', '', $s);          // strip "01 - " prefix
+        $s = strtolower($s);
+        $s = preg_replace('/[^\w\s]/u', '', $s);                  // drop punctuation
+        return trim((string) preg_replace('/\s+/', ' ', $s));
+    }
 
     private function fetchReleaseGroup(string $mbid): ?array
     {

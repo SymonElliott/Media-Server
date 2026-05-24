@@ -346,10 +346,14 @@ class LibraryScanner
         $needsDuration = ($dbType === 'audiobooks') || ($type === 'books' && in_array($ext, self::AUDIO_EXTS, true));
         $duration      = $needsDuration ? $this->probeDuration($path) : null;
 
-        $series_order = ($dbType === 'audiobooks' || $dbType === 'books')
-            ? ($this->extractSeriesOrder($meta['book_name'] ?? $meta['title'] ?? '')
-               ?? $this->extractSeriesOrder($file->getBasename('.' . $ext)))
-            : null;
+        $series_order = match (true) {
+            $dbType === 'audiobooks' || $dbType === 'books' =>
+                $this->extractSeriesOrder($meta['book_name'] ?? $meta['title'] ?? '')
+                ?? $this->extractSeriesOrder($file->getBasename('.' . $ext)),
+            $dbType === 'music' =>
+                $this->extractMusicTrackOrder($file),
+            default => null,
+        };
 
         $existing = $this->db->first('SELECT id, episode FROM media WHERE path = ?', [$path]);
 
@@ -479,6 +483,38 @@ class LibraryScanner
                 'path'                => $path,
             ]
         );
+    }
+
+    /**
+     * Derive a track-order float from a music filename.
+     *
+     * Handled patterns (extension already stripped):
+     *   "01 - Song"     →  1        (single-disc, leading number)
+     *   "1. Song"       →  1
+     *   "Track 03"      →  3
+     *   "2-05 Song"     →  205      (disc 2, track 5  → disc*100 + track)
+     *   "1-12 Song"     →  112
+     */
+    private function extractMusicTrackOrder(SplFileInfo $file): ?float
+    {
+        $name = $file->getBasename('.' . strtolower($file->getExtension()));
+
+        // Multi-disc: single digit disc + 1–3 digit track, e.g. "2-05", "1-12"
+        if (preg_match('/^(\d)-(\d{1,3})\b/', $name, $m)) {
+            return (float) ((int) $m[1] * 100 + (int) $m[2]);
+        }
+
+        // "Track 01" / "Track01"
+        if (preg_match('/^track\s*(\d{1,3})/i', $name, $m)) {
+            return (float) $m[1];
+        }
+
+        // "01 - Song", "01. Song", "01 Song", "1 - Song"
+        if (preg_match('/^(\d{1,3})\s*[-._\s]/', $name, $m)) {
+            return (float) $m[1];
+        }
+
+        return null;
     }
 
     private function extractSeriesOrder(string $name): ?float
