@@ -288,6 +288,24 @@
         <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:0.75rem;">
             <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
                 <div class="settings-row-label">
+                    <strong>Database stats</strong>
+                    <span>Row counts per table and v_media view health</span>
+                </div>
+                <button class="btn-refresh" id="db-stats-btn" onclick="showDbStats()">View stats</button>
+            </div>
+            <div id="db-stats-output" style="display:none;width:100%;">
+                <div id="db-stats-terminal" style="
+                    background:#0d0d0d;border:1px solid var(--border);border-radius:6px;
+                    padding:0.75rem 1rem;font-family:ui-monospace,'SFMono-Regular',Menlo,Monaco,Consolas,monospace;
+                    font-size:0.78rem;line-height:1.6;color:#c9d1d9;white-space:pre-wrap;word-break:break-all;
+                    max-height:300px;overflow-y:auto;
+                "></div>
+            </div>
+        </div>
+
+        <div class="settings-row" style="flex-direction:column;align-items:flex-start;gap:0.75rem;">
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%;">
+                <div class="settings-row-label">
                     <strong>Application update</strong>
                     <span id="version-info" style="font-family:monospace;font-size:0.78rem;">Loading…</span>
                 </div>
@@ -327,6 +345,58 @@
 
 {% block scripts %}
 <script>
+// ── DB Stats ──────────────────────────────────────────────────────────────────
+async function showDbStats() {
+    const btn      = document.getElementById('db-stats-btn');
+    const wrap     = document.getElementById('db-stats-output');
+    const terminal = document.getElementById('db-stats-terminal');
+
+    btn.disabled    = true;
+    btn.textContent = 'Loading…';
+    wrap.style.display = 'block';
+    terminal.textContent = 'Querying…';
+
+    try {
+        const d = await fetch('/system/db-stats').then(r => r.json());
+        let out = '';
+
+        out += `SQLite ${d.sqlite_version ?? 'unknown'}\n\n`;
+
+        out += '── Tables ────────────────────────────────\n';
+        for (const [tbl, n] of Object.entries(d.tables ?? {})) {
+            out += `  ${tbl.padEnd(20)} ${n}\n`;
+        }
+
+        if (d.media_by_type) {
+            out += '\n── media rows by type ────────────────────\n';
+            for (const [type, n] of Object.entries(d.media_by_type)) {
+                out += `  ${type.padEnd(20)} ${n}\n`;
+            }
+        }
+
+        out += '\n── v_media view ──────────────────────────\n';
+        if (d.v_media_ok) {
+            out += `  rows: ${d.v_media_count}  ✓ healthy\n`;
+        } else {
+            out += `  ✗ BROKEN: ${d.v_media_error}\n`;
+        }
+
+        if (d.v_media_sql) {
+            const hasBug = d.v_media_sql.includes('media_legacy');
+            out += `\n── Stored view SQL ───────────────────────\n`;
+            out += (hasBug ? '  ⚠ CONTAINS media_legacy!\n' : '  ✓ looks correct\n');
+            out += d.v_media_sql + '\n';
+        }
+
+        terminal.textContent = out;
+    } catch (err) {
+        terminal.textContent = 'Request failed: ' + err.message;
+    } finally {
+        btn.disabled    = false;
+        btn.textContent = 'View stats';
+    }
+}
+
 // ── Version info ──────────────────────────────────────────────────────────────
 (async function loadVersion() {
     try {

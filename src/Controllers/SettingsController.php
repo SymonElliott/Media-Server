@@ -169,6 +169,69 @@ class SettingsController
         return $response->withHeader('Content-Type', 'application/json');
     }
 
+    /** GET /system/db-stats — row counts for every key table + view. Admin only. */
+    public function dbStats(Request $request, Response $response): Response
+    {
+        if (($_SESSION['user']['role'] ?? '') !== 'admin') {
+            return $response->withStatus(403);
+        }
+
+        $pdo  = $this->db->pdo();
+        $data = [];
+
+        // Raw base + extension tables
+        foreach (['media', 'media_shows', 'media_music', 'media_books',
+                  'people', 'series_meta', 'album_meta', 'progress', 'users'] as $tbl) {
+            try {
+                $n = $pdo->query("SELECT COUNT(*) FROM $tbl")->fetchColumn();
+                $data['tables'][$tbl] = (int) $n;
+            } catch (\Throwable $e) {
+                $data['tables'][$tbl] = 'ERROR: ' . $e->getMessage();
+            }
+        }
+
+        // Per-type counts from the base table
+        try {
+            $rows = $pdo->query("SELECT type, COUNT(*) as n FROM media GROUP BY type")->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($rows as $r) {
+                $data['media_by_type'][$r['type']] = (int) $r['n'];
+            }
+        } catch (\Throwable $e) {
+            $data['media_by_type'] = 'ERROR: ' . $e->getMessage();
+        }
+
+        // v_media view health check
+        try {
+            $n = $pdo->query("SELECT COUNT(*) FROM v_media")->fetchColumn();
+            $data['v_media_count'] = (int) $n;
+            $data['v_media_ok']    = true;
+        } catch (\Throwable $e) {
+            $data['v_media_count'] = null;
+            $data['v_media_ok']    = false;
+            $data['v_media_error'] = $e->getMessage();
+        }
+
+        // Show the stored view SQL so we can see if media_legacy is still in it
+        try {
+            $row = $pdo->query(
+                "SELECT sql FROM sqlite_master WHERE type='view' AND name='v_media'"
+            )->fetch(\PDO::FETCH_ASSOC);
+            $data['v_media_sql'] = $row['sql'] ?? null;
+        } catch (\Throwable $e) {
+            $data['v_media_sql'] = 'ERROR: ' . $e->getMessage();
+        }
+
+        // SQLite version
+        try {
+            $data['sqlite_version'] = $pdo->query("SELECT sqlite_version()")->fetchColumn();
+        } catch (\Throwable $e) {
+            $data['sqlite_version'] = 'unknown';
+        }
+
+        $response->getBody()->write(json_encode($data, JSON_PRETTY_PRINT));
+        return $response->withHeader('Content-Type', 'application/json');
+    }
+
     /** POST /system/db-clear — wipe all media/people/metadata rows. Admin only. */
     public function dbClear(Request $request, Response $response): Response
     {
