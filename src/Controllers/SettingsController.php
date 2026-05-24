@@ -245,7 +245,7 @@ class SettingsController
         $pdo->beginTransaction();
         try {
             // Delete all media rows — ON DELETE CASCADE removes extension rows
-            // (media_shows, media_music, media_books) automatically.
+            // (media_shows, media_music, media_books, media_movies) automatically.
             $pdo->exec('DELETE FROM media');
 
             // Clear derived/enrichment tables
@@ -267,6 +267,12 @@ class SettingsController
             $response->getBody()->write(json_encode(['ok' => false, 'error' => $e->getMessage()]));
             return $response->withHeader('Content-Type', 'application/json')->withStatus(500);
         }
+
+        // Drop v_media so the next Connection boot recreates it from the correct
+        // PHP definition. This repairs any view that SQLite silently rewrote to
+        // reference a deleted table (e.g. media_legacy). Runs outside the data
+        // transaction because DROP VIEW is DDL and cannot be rolled back anyway.
+        $pdo->exec('DROP VIEW IF EXISTS v_media');
 
         $this->log->info('system', 'Database cleared by ' . ($_SESSION['user']['username'] ?? 'unknown'));
         $response->getBody()->write(json_encode(['ok' => true]));
