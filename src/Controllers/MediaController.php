@@ -55,14 +55,16 @@ class MediaController
 
         // ── Extension-table fields routed by type ────────────────────────────
         match ($type) {
-            'shows'                   => $this->updateShowsExt($id, $body),
-            'music'                   => $this->updateMusicExt($id, $body),
-            'books', 'audiobooks'     => $this->updateBooksExt($id, $body),
-            default                   => null,
+            'movies'              => $this->updateMoviesExt($id, $body),
+            'shows'               => $this->updateShowsExt($id, $body),
+            'music'               => $this->updateMusicExt($id, $body),
+            'books', 'audiobooks' => $this->updateBooksExt($id, $body),
+            default               => null,
         };
 
-        $allAllowed = ['title', 'year', 'description', 'poster', 'author', 'series',
-                       'season', 'episode', 'series_order', 'book_name', 'book_version'];
+        $allAllowed = ['title', 'year', 'description', 'poster', 'director', 'collection',
+                       'author', 'series', 'season', 'episode', 'series_order',
+                       'book_name', 'book_version'];
         if ($baseSets || array_intersect_key($body, array_flip($allAllowed))) {
             $this->renamer?->renameItem($id);
             $this->log?->info('media', sprintf(
@@ -76,6 +78,21 @@ class MediaController
 
         $response->getBody()->write(json_encode(['updated' => true]));
         return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    private function updateMoviesExt(int $id, array $body): void
+    {
+        $sets = $params = [];
+        foreach (['director', 'collection'] as $field) {
+            if (array_key_exists($field, $body)) {
+                $sets[]   = "$field = ?";
+                $params[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+            }
+        }
+        if ($sets) {
+            $params[] = $id;
+            $this->db->execute('UPDATE media_movies SET ' . implode(', ', $sets) . ' WHERE media_id = ?', $params);
+        }
     }
 
     private function updateShowsExt(int $id, array $body): void

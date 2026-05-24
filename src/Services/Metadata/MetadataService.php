@@ -99,6 +99,9 @@ class MetadataService
             $this->renamer?->renameAlbumTracks($item['author'] ?? '', $item['series'] ?? '');
         } else {
             $this->applyToSingle($mediaId, $meta, true);
+            if ($item['type'] === 'movies') {
+                $this->applyMovieExtension($mediaId, $meta, true);
+            }
             $this->renamer?->renameItem($mediaId);
         }
     }
@@ -364,7 +367,33 @@ class MetadataService
             $this->log("[movies] \"{$searchTitle}\" ✗ no match");
         }
         $this->applyToSingle($item['id'], $meta, true);
+        $this->applyMovieExtension($item['id'], $meta, true);
         $this->renamer?->renameItem($item['id']);
+    }
+
+    /**
+     * Persist movie-specific fields (director, collection) to media_movies.
+     * Called after applyToSingle() for any movie enrichment path.
+     */
+    private function applyMovieExtension(int $id, ?array $meta, bool $overwrite = false): void
+    {
+        if (!$meta) {
+            return;
+        }
+        $director   = $meta['director'] ?? null;
+        $collection = $meta['collection'] ?? null;
+
+        $updateDirector   = $overwrite ? 'excluded.director'   : 'COALESCE(excluded.director,   director)';
+        $updateCollection = $overwrite ? 'excluded.collection' : 'COALESCE(excluded.collection, collection)';
+
+        $this->db->execute(
+            "INSERT INTO media_movies (media_id, director, collection)
+             VALUES (?, ?, ?)
+             ON CONFLICT(media_id) DO UPDATE SET
+                 director   = {$updateDirector},
+                 collection = {$updateCollection}",
+            [$id, $director, $collection]
+        );
     }
 
     /**

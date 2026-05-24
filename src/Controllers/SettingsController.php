@@ -180,7 +180,7 @@ class SettingsController
         $data = [];
 
         // Raw base + extension tables
-        foreach (['media', 'media_shows', 'media_music', 'media_books',
+        foreach (['media', 'media_movies', 'media_shows', 'media_music', 'media_books',
                   'people', 'series_meta', 'album_meta', 'progress', 'users'] as $tbl) {
             try {
                 $n = $pdo->query("SELECT COUNT(*) FROM $tbl")->fetchColumn();

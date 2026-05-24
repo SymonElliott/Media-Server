@@ -142,8 +142,13 @@ class TmdbProvider
         ]);
         $d = json_decode($res->getBody()->getContents(), true);
 
-        $cast      = array_slice($d['credits']['cast'] ?? [], 0, 6);
-        $directors = array_filter($d['credits']['crew'] ?? [], fn($c) => $c['job'] === 'Director');
+        $cast          = array_slice($d['credits']['cast'] ?? [], 0, 6);
+        $directorCrews = array_values(array_filter(
+            $d['credits']['crew'] ?? [],
+            fn($c) => $c['job'] === 'Director'
+        ));
+        $directorNames = array_column($directorCrews, 'name');
+        $collection    = $d['belongs_to_collection']['name'] ?? null;
 
         return [
             'external_id'     => (string) $id,
@@ -153,10 +158,14 @@ class TmdbProvider
             'year'            => (int) substr($d['release_date'] ?? '', 0, 4) ?: null,
             'rating'          => $d['vote_average'] ?? null,
             'poster_url'      => isset($d['poster_path']) ? self::IMAGE_BASE . $d['poster_path'] : null,
+            // Top-level for easy persistence into media_movies columns
+            'director'        => $directorNames[0] ?? null,
+            'collection'      => $collection,
             'metadata'        => [
-                'cast'     => array_column($cast, 'name'),
-                'director' => array_column(array_values($directors), 'name'),
-                'genres'   => array_column($d['genres'] ?? [], 'name'),
+                'cast'       => array_column($cast, 'name'),
+                'director'   => $directorNames,
+                'genres'     => array_column($d['genres'] ?? [], 'name'),
+                'collection' => $collection,
             ],
         ];
     }

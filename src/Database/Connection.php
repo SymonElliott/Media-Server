@@ -24,21 +24,22 @@ class Connection
 
         // busy_timeout must come FIRST — it arms the retry handler before any
         // subsequent PRAGMA or query that might encounter a locked database.
-        // WAL mode: readers don't block the writer and vice-versa.
         $this->pdo->exec('PRAGMA busy_timeout = 10000');
         try {
+            // WAL mode: readers don't block the writer and vice-versa.
             $this->pdo->exec('PRAGMA journal_mode = WAL');
         } catch (\PDOException) {
-            // WAL switch requires a brief exclusive lock; if a scan is mid-write
-            // and the 10 s timeout is still exceeded, skip — the database already
-            // has a journal mode set and will continue to work correctly.
+            // WAL switch requires a brief exclusive lock; skip if another process
+            // holds it — the DB already has a journal mode and will work correctly.
         }
-
-        // Enable foreign key constraints (required for ON DELETE CASCADE)
         $this->pdo->exec('PRAGMA foreign_keys = ON');
 
-        $this->migrate();
+        $this->createTables();
+        $this->runMigrations();
+        $this->recreateView();
     }
+
+    // ── Public query helpers ──────────────────────────────────────────────────
 
     public function pdo(): PDO
     {
@@ -67,9 +68,11 @@ class Connection
         return $row !== false ? $row : null;
     }
 
-    private function migrate(): void
+    // ── Schema creation (idempotent DDL) ─────────────────────────────────────
+
+    private function createTables(): void
     {
-        // ── Core non-media tables ────────────────────────────────────────────
+        // ── Non-media tables ──────────────────────────────────────────────────
         $this->pdo->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS users (
                 id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,10 +164,7 @@ class Connection
             CREATE INDEX IF NOT EXISTS idx_album_meta ON album_meta(album, artist);
         SQL);
 
-        // ── media base table (common fields only) ────────────────────────────
-        // When upgrading from the old flat schema, this CREATE is a no-op because
-        // the old table already exists; the migration below strips the type-specific
-        // columns once extension tables are populated.
+        // ── Base media table (common fields only) ─────────────────────────────
         $this->pdo->exec(<<<'SQL'
             CREATE TABLE IF NOT EXISTS media (
                 id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,8 +190,15 @@ class Connection
             CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
         SQL);
 
-        // ── Type-specific extension tables (one-to-one with media) ───────────
+        // ── Type-specific extension tables (one-to-one with media) ────────────
         $this->pdo->exec(<<<'SQL'
+            CREATE TABLE IF NOT EXISTS media_movies (
+                media_id    INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
+                director    TEXT,
+                collection  TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_media_movies_collection ON media_movies(collection);
+
             CREATE TABLE IF NOT EXISTS media_shows (
                 media_id  INTEGER PRIMARY KEY REFERENCES media(id) ON DELETE CASCADE,
                 show_name TEXT,
@@ -224,34 +231,51 @@ class Connection
             CREATE INDEX IF NOT EXISTS idx_media_books_book_name ON media_books(book_name);
             CREATE INDEX IF NOT EXISTS idx_media_books_series    ON media_books(series);
         SQL);
+    }
 
-        // ── One-time migration from old flat schema ───────────────────────────
-        // Detect the old schema by checking whether 'show_name' still lives on media.
-        $mediaColumns = array_column(
-            $this->pdo->query('PRAGMA table_info(media)')->fetchAll(),
-            'name'
-        );
-        if (in_array('show_name', $mediaColumns, true)) {
-            $this->migrateToExtensionTables();
+    // ── Versioned migrations ──────────────────────────────────────────────────
+    //
+    // Each migration runs exactly once, gated by __schema_version in settings.
+    // New schema changes go into the next version block — never edit existing ones.
+
+    private function runMigrations(): void
+    {
+        $version = (int) ($this->first(
+            "SELECT value FROM settings WHERE key = '__schema_version'"
+        )['value'] ?? 0);
+
+        if ($version < 1) {
+            $this->migrate_v1();
+            $this->pdo->exec(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES ('__schema_version', '1')"
+            );
         }
 
-        // ── Legacy column additions for pre-extension DBs ────────────────────
-        // Safe to run every time (no-ops if column already exists or was removed
-        // by the extension-table migration above).
+        // if ($version < 2) { $this->migrate_v2(); ... }
+    }
+
+    /**
+     * Migration v1 — applied once to any DB that existed before this schema version.
+     *
+     * 1. Add columns that were introduced in earlier point releases but not
+     *    present in very old DBs (idempotent ALTER TABLE).
+     * 2. If the DB is still on the old flat schema (show_name on media),
+     *    migrate data to the extension tables and recreate media without
+     *    the type-specific columns.
+     * 3. Backfill media_movies for any movies already in the DB.
+     */
+    private function migrate_v1(): void
+    {
+        // ── Step 1: add any legacy columns that may be missing ────────────────
         $mediaColumns = array_column(
-            $this->pdo->query('PRAGMA table_info(media)')->fetchAll(),
-            'name'
+            $this->pdo->query('PRAGMA table_info(media)')->fetchAll(), 'name'
         );
-        foreach (['duration' => 'INTEGER'] as $col => $type) {
-            if (!in_array($col, $mediaColumns, true)) {
-                $this->pdo->exec("ALTER TABLE media ADD COLUMN $col $type");
-            }
+        if (!in_array('duration', $mediaColumns, true)) {
+            $this->pdo->exec('ALTER TABLE media ADD COLUMN duration INTEGER');
         }
 
-        // series_meta additions
         $smColumns = array_column(
-            $this->pdo->query('PRAGMA table_info(series_meta)')->fetchAll(),
-            'name'
+            $this->pdo->query('PRAGMA table_info(series_meta)')->fetchAll(), 'name'
         );
         foreach (['author_image' => 'TEXT', 'author_asin' => 'TEXT'] as $col => $type) {
             if (!in_array($col, $smColumns, true)) {
@@ -259,71 +283,31 @@ class Connection
             }
         }
 
-        // ── v_media view — always drop and recreate ───────────────────────────
-        // SQLite 3.26.0+ silently rewrites view SQL when a table is renamed, leaving
-        // the view pointing at the now-deleted media_legacy table.  Three detection
-        // approaches all had subtle failure modes (sqlite_schema missing on older
-        // SQLite, LIMIT 0 short-circuiting, sqlite_master fetch returning false in
-        // edge cases).  The only approach guaranteed to work on every SQLite version
-        // and in every deployment state is to unconditionally drop and recreate.
-        //
-        // Race-window concern: a concurrent scan query between DROP and CREATE would
-        // see "no such table: v_media" — but the scan creates its OWN Connection on
-        // startup and does its own DROP+CREATE before querying, so any such window is
-        // sub-millisecond and self-healing on the very next query attempt.  This is
-        // strictly better than leaving a broken view in place indefinitely.
-        $this->pdo->exec('DROP VIEW IF EXISTS v_media');
-        $this->pdo->exec(<<<'SQL'
-            CREATE VIEW v_media AS
-            SELECT
-                m.id,
-                m.type,
-                m.path,
-                m.filename,
-                m.extension,
-                m.size,
-                m.title,
-                m.year,
-                m.description,
-                m.poster,
-                m.external_id,
-                m.external_source,
-                m.metadata,
-                m.metadata_fetched_at,
-                m.indexed_at,
-                m.duration,
-                -- Shows-specific fields
-                ms.show_name,
-                ms.season,
-                ms.episode,
-                ms.still,
-                -- Books/audiobooks-specific fields
-                mb.book_name,
-                mb.book_version,
-                mb.chapters,
-                -- author: music→artist  |  books/audiobooks→author
-                CASE m.type WHEN 'music' THEN mu.artist ELSE mb.author END AS author,
-                -- series: music→album   |  books/audiobooks→series
-                CASE m.type WHEN 'music' THEN mu.album  ELSE mb.series END AS series,
-                -- series_order: music→track_order  |  books/audiobooks→series_order
-                CASE m.type WHEN 'music' THEN mu.track_order ELSE mb.series_order END AS series_order
-            FROM media m
-            LEFT JOIN media_shows ms ON ms.media_id = m.id
-            LEFT JOIN media_music  mu ON mu.media_id = m.id
-            LEFT JOIN media_books  mb ON mb.media_id = m.id
-        SQL);
+        // ── Step 2: migrate from old flat schema if needed ────────────────────
+        $mediaColumns = array_column(
+            $this->pdo->query('PRAGMA table_info(media)')->fetchAll(), 'name'
+        );
+        if (in_array('show_name', $mediaColumns, true)) {
+            $this->migrateFromFlatSchema();
+        }
+
+        // ── Step 3: backfill media_movies for any existing movies ─────────────
+        $this->pdo->exec(
+            "INSERT OR IGNORE INTO media_movies (media_id)
+             SELECT id FROM media WHERE type = 'movies'"
+        );
     }
 
     /**
-     * One-time migration: populate extension tables from the old flat media table,
+     * One-time: populate extension tables from the old flat media table,
      * then recreate media with only the common base columns.
      *
-     * Gated by the presence of 'show_name' on media; will never run twice.
+     * Gated by the presence of 'show_name' on media — will never run twice.
      */
-    private function migrateToExtensionTables(): void
+    private function migrateFromFlatSchema(): void
     {
-        // Populate extension tables from flat columns.
-        // INSERT OR IGNORE so a partial previous run is safe to retry.
+        // Populate extension tables. INSERT OR IGNORE so a partial previous run
+        // is safe to retry.
         $this->pdo->exec(<<<'SQL'
             INSERT OR IGNORE INTO media_shows (media_id, show_name, season, episode, still)
             SELECT id, show_name, season, episode, still
@@ -339,19 +323,11 @@ class Connection
         SQL);
 
         // Recreate media without type-specific columns.
-        // Use a transaction so no partial state is left on failure.
+        // Drop the view inside the transaction so SQLite 3.26.0+ cannot silently
+        // rewrite it to reference media_legacy after the RENAME.
         $this->pdo->beginTransaction();
         try {
-            // SQLite 3.26.0+ automatically rewrites view SQL when a table is renamed.
-            // If v_media already exists, the RENAME below would silently change every
-            // "FROM media" in the view to "FROM media_legacy".  After we subsequently
-            // DROP TABLE media_legacy the view becomes permanently broken, and our
-            // "CREATE VIEW IF NOT EXISTS" later is a no-op (view still "exists").
-            // Fix: drop v_media inside this transaction BEFORE the rename.
-            // On commit  → view is gone; migrate() recreates it cleanly afterward.
-            // On rollback → the DROP is also rolled back; view is restored intact.
             $this->pdo->exec('DROP VIEW IF EXISTS v_media');
-
             $this->pdo->exec('ALTER TABLE media RENAME TO media_legacy');
             $this->pdo->exec(<<<'SQL'
                 CREATE TABLE media (
@@ -389,12 +365,80 @@ class Connection
             throw $e;
         }
 
-        // Recreate indexes on the new table.
         $this->pdo->exec(<<<'SQL'
             CREATE INDEX IF NOT EXISTS idx_media_type       ON media(type);
             CREATE INDEX IF NOT EXISTS idx_media_title      ON media(title);
             CREATE INDEX IF NOT EXISTS idx_media_year       ON media(year);
             CREATE INDEX IF NOT EXISTS idx_media_indexed_at ON media(indexed_at);
+        SQL);
+    }
+
+    // ── View recreation ───────────────────────────────────────────────────────
+    //
+    // v_media is always dropped and recreated on every boot.
+    //
+    // SQLite 3.26.0+ silently rewrites view SQL when a table is renamed, leaving
+    // the view pointing at the now-deleted table.  Rather than trying to detect
+    // this (every detection approach has edge-case failure modes), we simply
+    // unconditionally recreate the view — it takes microseconds and guarantees
+    // the view is always correct.
+
+    private function recreateView(): void
+    {
+        $this->pdo->exec('DROP VIEW IF EXISTS v_media');
+        $this->pdo->exec(<<<'SQL'
+            CREATE VIEW v_media AS
+            SELECT
+                m.id,
+                m.type,
+                m.path,
+                m.filename,
+                m.extension,
+                m.size,
+                m.title,
+                m.year,
+                m.description,
+                m.poster,
+                m.external_id,
+                m.external_source,
+                m.metadata,
+                m.metadata_fetched_at,
+                m.indexed_at,
+                m.duration,
+                -- Movies-specific fields
+                mm.director,
+                mm.collection,
+                -- Shows-specific fields
+                ms.show_name,
+                ms.season,
+                ms.episode,
+                ms.still,
+                -- Books/audiobooks-specific fields
+                mb.book_name,
+                mb.book_version,
+                mb.chapters,
+                -- author: music→artist | movies→director | books/audiobooks→author
+                CASE m.type
+                    WHEN 'music'  THEN mu.artist
+                    WHEN 'movies' THEN mm.director
+                    ELSE mb.author
+                END AS author,
+                -- series: music→album | movies→collection | books/audiobooks→series
+                CASE m.type
+                    WHEN 'music'  THEN mu.album
+                    WHEN 'movies' THEN mm.collection
+                    ELSE mb.series
+                END AS series,
+                -- series_order: music→track_order | books/audiobooks→series_order
+                CASE m.type
+                    WHEN 'music' THEN mu.track_order
+                    ELSE mb.series_order
+                END AS series_order
+            FROM media m
+            LEFT JOIN media_movies mm ON mm.media_id = m.id
+            LEFT JOIN media_shows  ms ON ms.media_id = m.id
+            LEFT JOIN media_music  mu ON mu.media_id = m.id
+            LEFT JOIN media_books  mb ON mb.media_id = m.id
         SQL);
     }
 }

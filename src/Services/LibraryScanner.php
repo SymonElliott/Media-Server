@@ -558,6 +558,16 @@ class LibraryScanner
         ?string $chapters
     ): void {
         match ($type) {
+            'movies' => $this->db->execute(
+                'INSERT INTO media_movies (media_id, director, collection)
+                 VALUES (?, ?, ?)
+                 ON CONFLICT(media_id) DO UPDATE SET
+                     director   = COALESCE(excluded.director, director),
+                     collection = COALESCE(excluded.collection, collection)',
+                // director/collection come from metadata enrichment (TMDB), not from the filesystem
+                [$mediaId, $meta['director'] ?? null, $meta['collection'] ?? null]
+            ),
+
             'shows' => $this->db->execute(
                 'INSERT INTO media_shows (media_id, show_name, season, episode)
                  VALUES (?, ?, ?, ?)
@@ -593,7 +603,7 @@ class LibraryScanner
                  $seriesOrder, $meta['book_version'], $chapters !== null ? json_encode($chapters) : null]
             ),
 
-            default => null, // movies: no extension table needed
+            default => null,
         };
     }
 
@@ -817,6 +827,7 @@ class LibraryScanner
             // typically clean ("The Batman (2022)") while filenames carry noise
             // ("The.Batman.2022.1080p.BluRay.x265-GROUP").
             // Fall back to the filename when the file sits directly in movies/.
+            // director/collection are populated later by metadata enrichment (TMDB).
             default => [
                 'title'        => $depth >= 1 ? $parts[0] : $file->getBasename('.' . $file->getExtension()),
                 'author'       => null,
@@ -826,6 +837,8 @@ class LibraryScanner
                 'show_name'    => null,
                 'season'       => null,
                 'episode'      => null,
+                'director'     => null,
+                'collection'   => null,
             ],
         };
     }
