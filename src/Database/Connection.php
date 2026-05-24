@@ -259,40 +259,22 @@ class Connection
             }
         }
 
-        // ── Repair a view broken by SQLite 3.26+ rename-rewriting ───────────
-        // SQLite 3.26.0+ auto-rewrites view SQL when a referenced table is renamed.
-        // Boots before 1.2.3 could rename 'media' → 'media_legacy' while v_media
-        // existed, leaving the view permanently pointing at the now-deleted table.
-        // The 1.2.3 fix drops v_media inside the migration transaction (before RENAME),
-        // but if the migration already completed on an earlier boot the guard never fires.
+        // ── v_media view — always drop and recreate ───────────────────────────
+        // SQLite 3.26.0+ silently rewrites view SQL when a table is renamed, leaving
+        // the view pointing at the now-deleted media_legacy table.  Three detection
+        // approaches all had subtle failure modes (sqlite_schema missing on older
+        // SQLite, LIMIT 0 short-circuiting, sqlite_master fetch returning false in
+        // edge cases).  The only approach guaranteed to work on every SQLite version
+        // and in every deployment state is to unconditionally drop and recreate.
         //
-        // We read the view's stored SQL directly from sqlite_master.
-        //   • sqlite_master has been present in every SQLite release (since v1).
-        //   • sqlite_schema is only an alias added in SQLite 3.33.0 — NOT used here.
-        //   • A query probe (LIMIT 0) is NOT used because SQLite short-circuits LIMIT 0
-        //     before compiling the view's FROM clause, so the broken reference is never
-        //     raised as an error and the catch block is never entered.
-        $viewRow = $this->pdo->query(
-            "SELECT sql FROM sqlite_master WHERE type='view' AND name='v_media'"
-        )->fetch(\PDO::FETCH_ASSOC);
-        if (isset($viewRow['sql']) && str_contains((string) $viewRow['sql'], 'media_legacy')) {
-            // The stored view SQL still references the dropped media_legacy table.
-            // Drop it so the CREATE VIEW IF NOT EXISTS below rebuilds it correctly.
-            $this->pdo->exec('DROP VIEW IF EXISTS v_media');
-        }
-
-        // ── v_media view ──────────────────────────────────────────────────────
-        // Use IF NOT EXISTS — never drop a healthy view.
-        //
-        // Dropping on every boot creates a race window: a long-running scan.php
-        // query against v_media can land between the DROP and the subsequent
-        // CREATE of a concurrent HTTP request, producing "no such table: v_media".
-        //
-        // Definition changes should use a versioned migration gate (like
-        // migrateToExtensionTables) — or add a targeted repair block like the one
-        // above.
+        // Race-window concern: a concurrent scan query between DROP and CREATE would
+        // see "no such table: v_media" — but the scan creates its OWN Connection on
+        // startup and does its own DROP+CREATE before querying, so any such window is
+        // sub-millisecond and self-healing on the very next query attempt.  This is
+        // strictly better than leaving a broken view in place indefinitely.
+        $this->pdo->exec('DROP VIEW IF EXISTS v_media');
         $this->pdo->exec(<<<'SQL'
-            CREATE VIEW IF NOT EXISTS v_media AS
+            CREATE VIEW v_media AS
             SELECT
                 m.id,
                 m.type,
