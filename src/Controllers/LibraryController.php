@@ -1137,14 +1137,17 @@ class LibraryController
     private function browseBooks(int $offset, int $limit): array
     {
         // Prune author groups whose directories no longer exist.
-        // Safety: skip pruning if the books library root is not accessible (NAS not mounted).
-        if (is_dir($this->libraryPath . '/books')) {
+        // Use scandir() on the books root — it returns false if the NAS is not
+        // mounted or the directory cannot be read, which is safer than is_dir()
+        // per entry (is_dir can return stale cached results on NFS mounts).
+        $booksListing = @scandir($this->libraryPath . '/books');
+        if ($booksListing !== false) {
+            $onDisk = array_flip($booksListing);
             $groups = $this->db->query(
                 'SELECT DISTINCT author as grp FROM v_media WHERE type IN ("books","audiobooks") AND author IS NOT NULL'
             );
             foreach ($groups as $row) {
-                $dir = $this->libraryPath . '/books/' . $row['grp'];
-                if (!is_dir($dir)) {
+                if ($row['grp'] !== null && !isset($onDisk[$row['grp']])) {
                     $this->db->execute(
                         'DELETE FROM media WHERE id IN (SELECT media_id FROM media_books WHERE author = ?)',
                         [$row['grp']]
@@ -1277,21 +1280,30 @@ class LibraryController
 
     private function pruneGroupsByDirectory(string $type, string $col): void
     {
-        // Safety: if the library root for this type is not accessible (e.g. NAS volume
-        // not yet mounted after container restart), skip pruning entirely.
-        // Without this guard every group's is_dir() check returns false and ALL media
-        // for this type gets mass-deleted on the first browse request.
-        if (!is_dir($this->libraryPath . '/' . $type)) {
+        // Use scandir() on the type root rather than is_dir() per group entry.
+        //
+        // is_dir() can return stale cached results on NFS mounts — it sees the
+        // mount-point directory as existing even when the NAS is offline, then
+        // returns false for every subdirectory, silently mass-deleting all media.
+        //
+        // scandir() forces a fresh kernel read.  If the type root isn't mounted
+        // or can't be read for any reason, it returns false and we skip pruning
+        // entirely — far better than accidentally wiping valid data.
+        $listing = @scandir($this->libraryPath . '/' . $type);
+        if ($listing === false) {
             return;
         }
+        $onDisk = array_flip($listing);
 
         $groups = $this->db->query(
             "SELECT DISTINCT $col as grp FROM v_media WHERE type = ?",
             [$type]
         );
         foreach ($groups as $row) {
-            $dir = $this->libraryPath . '/' . $type . '/' . $row['grp'];
-            if (!is_dir($dir)) {
+            if ($row['grp'] === null) {
+                continue;
+            }
+            if (!isset($onDisk[$row['grp']])) {
                 // Route DELETE through extension tables — $col is not on the base media table
                 if ($col === 'show_name') {
                     $this->db->execute(
