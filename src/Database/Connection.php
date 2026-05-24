@@ -338,6 +338,16 @@ class Connection
         // Use a transaction so no partial state is left on failure.
         $this->pdo->beginTransaction();
         try {
+            // SQLite 3.26.0+ automatically rewrites view SQL when a table is renamed.
+            // If v_media already exists, the RENAME below would silently change every
+            // "FROM media" in the view to "FROM media_legacy".  After we subsequently
+            // DROP TABLE media_legacy the view becomes permanently broken, and our
+            // "CREATE VIEW IF NOT EXISTS" later is a no-op (view still "exists").
+            // Fix: drop v_media inside this transaction BEFORE the rename.
+            // On commit  → view is gone; migrate() recreates it cleanly afterward.
+            // On rollback → the DROP is also rolled back; view is restored intact.
+            $this->pdo->exec('DROP VIEW IF EXISTS v_media');
+
             $this->pdo->exec('ALTER TABLE media RENAME TO media_legacy');
             $this->pdo->exec(<<<'SQL'
                 CREATE TABLE media (
