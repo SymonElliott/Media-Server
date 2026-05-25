@@ -399,18 +399,23 @@ class MetadataService
     /**
      * Reduce a raw movie title / filename to a clean TMDB search string.
      *
-     * Strategy: replace separators → strip brackets → cut at the first
-     * release year (19xx / 20xx preceded by a space so titles like "1917"
-     * or "2001: A Space Odyssey" are never accidentally truncated).
+     * Strategy: strip extension → replace separators → strip brackets/parens/braces
+     * → cut at the first release year (19xx / 20xx preceded by a space, so titles
+     * like "1917" or "2001: A Space Odyssey" are never accidentally truncated).
      * If no year is found, fall back to stripping known quality/noise tags.
+     * Finally, strip any trailing release-group suffix (e.g. "- GROUP").
      */
     private function cleanMovieSearchTitle(string $title): string
     {
-        // Replace common filename separators with spaces
-        $clean = str_replace(['.', '_'], ' ', $title);
+        // Strip video file extension if it snuck in
+        $clean = preg_replace('/\.(mkv|mp4|avi|mov|wmv|m4v)$/i', '', $title);
 
-        // Strip content in brackets / parens (quality tags, year in parens, etc.)
-        $clean = preg_replace('/\s*[\[\(][^\]\)]{0,40}[\]\)]\s*/', ' ', $clean);
+        // Replace common filename separators with spaces
+        $clean = str_replace(['.', '_'], ' ', $clean);
+
+        // Strip content in brackets / parens / curly-braces (quality tags, year in parens, etc.)
+        // Limit to 60 chars so very long comments are still caught.
+        $clean = preg_replace('/\s*[\[\(\{][^\]\)\}]{0,60}[\]\)\}]\s*/', ' ', $clean);
 
         // Primary: truncate at the first 4-digit release year preceded by whitespace.
         // This handles "Movie Title 2023 FRENCH 1080p BluRay" → "Movie Title" in one step.
@@ -420,27 +425,47 @@ class MetadataService
 
         // Fallback: strip known quality / encoding / language tags and everything after.
         $clean = preg_replace(
-            '/\s+\b(?:480p|576p|720p|1080p|2160p|4[Kk]|UHD|Blu-?Ray|BDRip|BRRip|WEB-?DL|WEBRip|HDTV|DVDRip|HDRip|x264|x265|H\.?264|H\.?265|HEVC|AVC|AAC|AC3|DTS|HDR|SDR|NF|AMZN|DSNP|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|REMUX|FRENCH|MULTI|MULTi|VOSTFR|TRUEFRENCH)\b.*$/i',
+            '/\s+\b(?:480p|576p|720p|1080p|2160p|4[Kk]|UHD|Blu-?Ray|BDRip|BRRip|WEB-?DL|WEBRip|HDTV|DVDRip|HDRip|x264|x265|H\.?264|H\.?265|HEVC|AVC|AAC|AC3|DTS|HDR|SDR|NF|AMZN|DSNP|REPACK|PROPER|EXTENDED|UNRATED|THEATRICAL|REMUX|FRENCH|MULTI|MULTi|VOSTFR|TRUEFRENCH|COMPLETE)\b.*$/i',
             '',
             $clean
         );
+
+        // Strip any trailing release-group suffix left after quality-tag removal (e.g. "- GROUP")
+        $clean = preg_replace('/\s*-\s*[A-Za-z0-9]+\s*$/', '', $clean);
+
         return trim($clean);
     }
 
     /**
      * Clean a show folder name for TMDB search: replace dots/underscores
-     * with spaces and strip a trailing release year.
+     * with spaces and strip trailing noise.
      *
-     * "The.Flash.2014" → "The Flash"
-     * "Breaking Bad (2008)" → "Breaking Bad"
+     * "The.Flash.2014"         → "The Flash"
+     * "Breaking Bad (2008)"    → "Breaking Bad"
+     * "House.of.Dragon.S01"    → "House of Dragon"
+     * "Silo (2023-)"           → "Silo"
+     * "The Office (2005-2013)" → "The Office"
      */
     private function cleanShowSearchTitle(string $name): string
     {
         $clean = str_replace(['.', '_'], ' ', $name);
-        // Strip trailing parenthetical year
-        $clean = preg_replace('/\s*\(\s*(?:19|20)\d{2}\s*\)\s*$/', '', $clean);
+
+        // Strip trailing parenthetical year or date range: (2014) / (2014-) / (2014-2020)
+        $clean = preg_replace('/\s*\(\s*(?:19|20)\d{2}(?:\s*-\s*(?:(?:19|20)\d{2})?)?\s*\)\s*$/', '', $clean);
+
         // Strip trailing bare year
         $clean = preg_replace('/\s+(?:19|20)\d{2}\s*$/', '', $clean);
+
+        // Strip trailing season indicator: "S01", "S1", "Season 1", "Season.1"
+        $clean = preg_replace('/\s+(?:S\d{1,2}|Season\s*\d+)\s*$/i', '', $clean);
+
+        // Strip trailing quality tags (edge case: some people name show dirs with resolution)
+        $clean = preg_replace(
+            '/\s+\b(?:480p|576p|720p|1080p|2160p|4[Kk]|UHD|BluRay|HDTV|WEB-?DL|WEBRip)\b.*$/i',
+            '',
+            $clean
+        );
+
         return trim($clean);
     }
 

@@ -2028,7 +2028,27 @@
                         document.getElementById('search-author').value = item.author || '';
                     }
                 } else {
-                    document.getElementById('search-query').value  = item.show_name || item.title || item.filename || '';
+                    // For shows, show_name is already a clean directory name.
+                    // For movies / music, item.title may be a raw filename stem
+                    // ("The.Dark.Knight.2008.1080p.BluRay.x264") — apply the same
+                    // cleaning the server uses before putting it in the search box.
+                    let sq = item.show_name || item.title || item.filename || '';
+                    if (!item.show_name && sq) {
+                        // Strip common video extensions
+                        sq = sq.replace(/\.(mkv|mp4|avi|mov|wmv|m4v|flac|mp3|m4a|ogg|wav)$/i, '');
+                        // Replace dot/underscore separators with spaces
+                        sq = sq.replace(/[._]/g, ' ');
+                        // Strip content in brackets / parens / braces (≤60 chars)
+                        sq = sq.replace(/\s*[\[({][^\])}]{0,60}[\])}]\s*/g, ' ');
+                        // Truncate at a release year (19xx / 20xx preceded by whitespace)
+                        sq = sq.replace(/\s+(?:19|20)\d{2}\b.*$/, '');
+                        // Strip known quality / source / language tags and everything after
+                        sq = sq.replace(/\s+(?:480p|576p|720p|1080p|2160p|4K|UHD|Blu-?Ray|BDRip|BRRip|WEB-?DL|WEBRip|HDTV|DVDRip|HDRip|x264|x265|HEVC|AVC|HDR|REMUX|FRENCH|MULTI|COMPLETE)\b.*/i, '');
+                        // Strip trailing release-group suffix (e.g. "- GROUP")
+                        sq = sq.replace(/\s*-\s*[A-Za-z0-9]+\s*$/, '');
+                        sq = sq.trim();
+                    }
+                    document.getElementById('search-query').value  = sq || item.title || item.filename || '';
                     document.getElementById('search-author').value = '';
                 }
                 document.getElementById('search-results').innerHTML = '';
