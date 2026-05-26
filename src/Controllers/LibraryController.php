@@ -1591,11 +1591,17 @@ class LibraryController
         return ($which && is_executable($which)) ? $which : null;
     }
 
+    /** Directory names hidden from UI listings (NAS metadata, OS caches, etc.). */
+    private const IGNORED_DIRS = ['@eaDir', '@Recycle', '#recycle', '.Spotlight-V100', '.Trashes', '.TemporaryItems'];
+
     private function dirEntries(string $dirPath, string $urlPath): array
     {
         $entries = [];
         foreach (scandir($dirPath) as $entry) {
             if ($entry === '.' || $entry === '..' || $entry === '.DS_Store' || $entry[0] === '.') {
+                continue;
+            }
+            if (in_array($entry, self::IGNORED_DIRS, true)) {
                 continue;
             }
             $fullEntry = $dirPath . '/' . $entry;

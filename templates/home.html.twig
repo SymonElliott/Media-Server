@@ -134,6 +134,101 @@
 
 {% import _self as self %}
 
+{% if notices|length > 0 %}
+<style>
+    .setup-checklist {
+        background: var(--surface);
+        border: 1px solid #7a5c00;
+        border-radius: 10px;
+        margin-bottom: 2rem;
+        overflow: hidden;
+    }
+    .setup-checklist-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0.75rem 1.1rem;
+        border-bottom: 1px solid #7a5c00;
+        background: rgba(122, 92, 0, 0.18);
+    }
+    .setup-checklist-title {
+        font-size: 0.82rem;
+        font-weight: 600;
+        color: #f0c040;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+    }
+    .setup-checklist-dismiss {
+        background: none;
+        border: none;
+        color: var(--muted);
+        cursor: pointer;
+        font-size: 1rem;
+        line-height: 1;
+        padding: 0 0.2rem;
+    }
+    .setup-checklist-dismiss:hover { color: var(--text); }
+    .setup-notice {
+        display: flex;
+        align-items: center;
+        gap: 0.85rem;
+        padding: 0.85rem 1.1rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .setup-notice:last-child { border-bottom: none; }
+    .setup-notice-icon { font-size: 1.25rem; flex-shrink: 0; }
+    .setup-notice-body { flex: 1; min-width: 0; }
+    .setup-notice-title { font-size: 0.88rem; font-weight: 500; color: var(--text); }
+    .setup-notice-detail { font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+    .setup-notice-action {
+        flex-shrink: 0;
+        font-size: 0.78rem;
+        font-weight: 500;
+        color: var(--accent);
+        text-decoration: none;
+        background: none;
+        border: 1px solid var(--accent);
+        border-radius: 5px;
+        padding: 0.3rem 0.7rem;
+        cursor: pointer;
+        white-space: nowrap;
+    }
+    .setup-notice-action:hover { background: var(--accent); color: #fff; }
+</style>
+<div class="setup-checklist" id="setup-checklist">
+    <div class="setup-checklist-header">
+        <span class="setup-checklist-title">⚠ Setup checklist</span>
+        <button class="setup-checklist-dismiss" onclick="dismissChecklist()" title="Dismiss">✕</button>
+    </div>
+    {% for notice in notices %}
+    <div class="setup-notice">
+        <div class="setup-notice-icon">{{ notice.icon }}</div>
+        <div class="setup-notice-body">
+            <div class="setup-notice-title">{{ notice.title }}</div>
+            <div class="setup-notice-detail">{{ notice.detail }}</div>
+        </div>
+        {% if notice.action_url %}
+            <a href="{{ notice.action_url }}" class="setup-notice-action">{{ notice.action_label }}</a>
+        {% elseif notice.action_js is defined %}
+            <button class="setup-notice-action" onclick="{{ notice.action_js }}">{{ notice.action_label }}</button>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+<script>
+function dismissChecklist() {
+    document.getElementById('setup-checklist').style.display = 'none';
+    try { sessionStorage.setItem('checklist-dismissed', '1'); } catch(e) {}
+}
+(function() {
+    try { if (sessionStorage.getItem('checklist-dismissed')) {
+        var el = document.getElementById('setup-checklist');
+        if (el) el.style.display = 'none';
+    }} catch(e) {}
+})();
+</script>
+{% endif %}
+
 {{ self.continue_row(watching,  'Continue Watching',  false) }}
 {{ self.continue_row(listening, 'Continue Listening', true)  }}
 {{ self.continue_row(reading,   'Continue Reading',   false) }}

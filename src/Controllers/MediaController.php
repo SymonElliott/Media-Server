@@ -33,27 +33,59 @@ class MediaController
     public function update(Request $request, Response $response, array $args): Response
     {
         $id   = (int) $args['id'];
-        $item = $this->db->first('SELECT id, title, type FROM media WHERE id = ?', [$id]);
+        $item = $this->db->first(
+            'SELECT id, title, type, show_name, book_name, author, series FROM v_media WHERE id = ?',
+            [$id]
+        );
         if (!$item) return $response->withStatus(404);
 
         $body = json_decode((string) $request->getBody(), true) ?? [];
         $type = $item['type'];
 
-        // ── Base-table fields (common to all types) ─────────────────────────
-        $baseFields = ['title', 'year', 'description', 'poster'];
-        $baseSets = $baseParams = [];
-        foreach ($baseFields as $field) {
+        // ── Fields that are per-item vs. shared across the whole group ───────
+        //
+        // Per-item fields only update the single row (title is always episode/
+        // track/file-specific; season/episode/track_order/book_version are structural).
+        //
+        // Shared fields (description, year, poster) are semantically group-level
+        // for grouped types (shows, music, books/audiobooks) — writing to one row
+        // would produce an inconsistent state where sibling rows disagree.  We
+        // cascade them to the whole group so a manual PATCH behaves the same way
+        // as a metadata match, just without the external lookup.
+        //
+        // Movies have no sibling rows; all fields are per-item.
+
+        $perItemFields  = ['title'];
+        $sharedFields   = ['year', 'description', 'poster'];
+
+        // ── 1. Per-item base fields (single row) ─────────────────────────────
+        $singleSets = $singleParams = [];
+        foreach ($perItemFields as $field) {
             if (array_key_exists($field, $body)) {
-                $baseSets[]   = "$field = ?";
-                $baseParams[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+                $singleSets[]   = "$field = ?";
+                $singleParams[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
             }
         }
-        if ($baseSets) {
-            $baseParams[] = $id;
-            $this->db->execute('UPDATE media SET ' . implode(', ', $baseSets) . ' WHERE id = ?', $baseParams);
+        // Movies: all base fields are per-item
+        if ($type === 'movies') {
+            foreach ($sharedFields as $field) {
+                if (array_key_exists($field, $body)) {
+                    $singleSets[]   = "$field = ?";
+                    $singleParams[] = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+                }
+            }
+        }
+        if ($singleSets) {
+            $singleParams[] = $id;
+            $this->db->execute('UPDATE media SET ' . implode(', ', $singleSets) . ' WHERE id = ?', $singleParams);
         }
 
-        // ── Extension-table fields routed by type ────────────────────────────
+        // ── 2. Shared base fields — cascade to the whole group ───────────────
+        if ($type !== 'movies') {
+            $this->cascadeSharedFields($type, $id, $item, $body, $sharedFields);
+        }
+
+        // ── 3. Extension-table fields routed by type ─────────────────────────
         match ($type) {
             'movies'              => $this->updateMoviesExt($id, $body),
             'shows'               => $this->updateShowsExt($id, $body),
@@ -65,7 +97,7 @@ class MediaController
         $allAllowed = ['title', 'year', 'description', 'poster', 'director', 'collection',
                        'author', 'series', 'season', 'episode', 'series_order',
                        'book_name', 'book_version'];
-        if ($baseSets || array_intersect_key($body, array_flip($allAllowed))) {
+        if ($singleSets || array_intersect_key($body, array_flip($allAllowed))) {
             $this->renamer?->renameItem($id);
             $this->log?->info('media', sprintf(
                 'Updated "%s" (id=%d, type=%s): %s',
@@ -78,6 +110,76 @@ class MediaController
 
         $response->getBody()->write(json_encode(['updated' => true]));
         return $response->withHeader('Content-Type', 'application/json');
+    }
+
+    /**
+     * Cascade shared base fields (description, year, poster) to every sibling
+     * row that belongs to the same logical group as $id.
+     *
+     * Shows   → all episodes with the same show_name
+     * Music   → all tracks with the same artist + album
+     * Books / Audiobooks → all files with the same book_name
+     */
+    private function cascadeSharedFields(string $type, int $id, array $item, array $body, array $fields): void
+    {
+        $sets = $params = [];
+        foreach ($fields as $field) {
+            if (array_key_exists($field, $body)) {
+                $val = ($body[$field] !== '' && $body[$field] !== null) ? $body[$field] : null;
+                // poster: only overwrite when a value is explicitly supplied
+                if ($field === 'poster' && $val === null) continue;
+                $sets[]   = "$field = ?";
+                $params[] = $val;
+            }
+        }
+        if (!$sets) return;
+
+        $setClauses = implode(', ', $sets);
+
+        match ($type) {
+            'shows' => (function () use ($setClauses, $params, $item): void {
+                $showName = $item['show_name'] ?? null;
+                if (!$showName) return;
+                $this->db->execute(
+                    "UPDATE media SET {$setClauses}
+                     WHERE id IN (SELECT media_id FROM media_shows WHERE show_name = ?)",
+                    array_merge($params, [$showName])
+                );
+            })(),
+
+            'music' => (function () use ($setClauses, $params, $item): void {
+                $artist = $item['author'] ?? null; // v_media aliases artist → author
+                $album  = $item['series'] ?? null; // v_media aliases album  → series
+                if (!$artist) return;
+                if ($album !== null) {
+                    $this->db->execute(
+                        "UPDATE media SET {$setClauses}
+                         WHERE id IN (
+                             SELECT media_id FROM media_music WHERE artist = ? AND album = ?
+                         )",
+                        array_merge($params, [$artist, $album])
+                    );
+                } else {
+                    $this->db->execute(
+                        "UPDATE media SET {$setClauses}
+                         WHERE id IN (SELECT media_id FROM media_music WHERE artist = ?)",
+                        array_merge($params, [$artist])
+                    );
+                }
+            })(),
+
+            'books', 'audiobooks' => (function () use ($setClauses, $params, $item): void {
+                $bookName = $item['book_name'] ?? null;
+                if (!$bookName) return;
+                $this->db->execute(
+                    "UPDATE media SET {$setClauses}
+                     WHERE id IN (SELECT media_id FROM media_books WHERE book_name = ?)",
+                    array_merge($params, [$bookName])
+                );
+            })(),
+
+            default => null,
+        };
     }
 
     private function updateMoviesExt(int $id, array $body): void

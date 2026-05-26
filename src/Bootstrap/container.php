@@ -185,6 +185,7 @@ return [
         return new HomeController(
             $c->get(Environment::class),
             $c->get(Connection::class),
+            $c->get(Settings::class),
             $libraryRoot
         );
     },

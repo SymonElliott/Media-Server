@@ -21,6 +21,19 @@ class LibraryScanner
                      'mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'],
     ];
 
+    /**
+     * Directory names to skip entirely during scanning.
+     * These are NAS/OS metadata folders that never contain real media.
+     */
+    private const IGNORED_DIRS = [
+        '@eaDir',          // Synology thumbnail cache
+        '@Recycle',        // Synology recycle bin
+        '#recycle',        // QNAP recycle bin
+        '.Spotlight-V100', // macOS Spotlight index
+        '.Trashes',        // macOS Trash
+        '.TemporaryItems', // macOS temp
+    ];
+
     private const AUDIO_EXTS = ['mp3', 'flac', 'aac', 'm4a', 'ogg', 'wav', 'm4b'];
 
     private int      $progressWriteCounter = 0;
@@ -139,6 +152,11 @@ class LibraryScanner
 
                         if ($file->getFilename() === '.DS_Store') {
                             @unlink($file->getRealPath());
+                            continue;
+                        }
+
+                        // Skip files inside NAS/OS metadata directories (@eaDir, etc.)
+                        if ($this->pathContainsIgnoredDir($file->getPath())) {
                             continue;
                         }
 
@@ -690,6 +708,21 @@ class LibraryScanner
         $which = trim((string) shell_exec('which ffprobe 2>/dev/null'));
         $cache = ($which !== '' && is_executable($which)) ? $which : '';
         return $cache !== '' ? $cache : null;
+    }
+
+    /**
+     * Return true when any segment of $path matches an ignored directory name.
+     * Used to skip NAS metadata folders like @eaDir without descending into them.
+     */
+    private function pathContainsIgnoredDir(string $path): bool
+    {
+        foreach (self::IGNORED_DIRS as $dir) {
+            if (str_contains($path, DIRECTORY_SEPARATOR . $dir . DIRECTORY_SEPARATOR)
+                || str_ends_with($path, DIRECTORY_SEPARATOR . $dir)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private function extractMeta(SplFileInfo $file, string $type): array
